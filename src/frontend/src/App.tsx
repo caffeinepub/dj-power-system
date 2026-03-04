@@ -9,6 +9,34 @@ import { SmartAmpChips } from "./components/SmartAmpChips";
 import { useAudioEngine } from "./hooks/useAudioEngine";
 
 const DEFAULT_EQ_BANDS = [70, 70, 70, 72, 75, 73, 70, 68, 65, 62];
+const LS_CHARGE_KEY = "dj-power-charge-level";
+const LS_EQ_KEY = "dj-power-eq-bands";
+
+// Load saved value from localStorage, return fallback if missing/invalid
+function loadFromStorage<T>(
+  key: string,
+  fallback: T,
+  validate: (v: unknown) => v is T,
+): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    const parsed = JSON.parse(raw) as unknown;
+    return validate(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function isNumberInRange(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 100;
+}
+
+function isEqBands(v: unknown): v is number[] {
+  return (
+    Array.isArray(v) && v.length === 10 && v.every((x) => typeof x === "number")
+  );
+}
 
 // Map EQ slider 0-100 → gain -12 to +12 dB
 // 50 = 0 dB (neutral), 0 = -12 dB, 100 = +12 dB
@@ -17,19 +45,53 @@ function sliderToGain(value: number): number {
 }
 
 export default function App() {
-  // Global state
-  const [chargeLevel, setChargeLevel] = useState(0);
+  // Global state — hydrated from localStorage on first render
+  const [chargeLevel, setChargeLevel] = useState(() =>
+    loadFromStorage(LS_CHARGE_KEY, 0, isNumberInRange),
+  );
   const [isCharging, setIsCharging] = useState(false);
   const isFullyCharged = chargeLevel >= 100;
   const isUnlocked = isFullyCharged;
 
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [eqBands, setEqBands] = useState<number[]>(DEFAULT_EQ_BANDS);
+  const [eqBands, setEqBands] = useState<number[]>(() =>
+    loadFromStorage(LS_EQ_KEY, DEFAULT_EQ_BANDS, isEqBands),
+  );
+
+  // Persist chargeLevel to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(LS_CHARGE_KEY, JSON.stringify(chargeLevel));
+  }, [chargeLevel]);
+
+  // Persist eqBands to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem(LS_EQ_KEY, JSON.stringify(eqBands));
+  }, [eqBands]);
 
   // Real Web Audio engine
-  const { connectAudioElement, setEqGain, realDbLevel, gainReduction } =
-    useAudioEngine();
+  const {
+    connectAudioElement,
+    setEqGain,
+    setBassGain,
+    realDbLevel,
+    gainReduction,
+    dbStabGainReduction,
+    ampClassLevels,
+    bassLevel,
+    crestFactor,
+  } = useAudioEngine();
+
+  // 80Hz bass gain state (-12 to +12 dB)
+  const [bassGain, setBassGainState] = useState(0);
+
+  const handleBassGainChange = useCallback(
+    (gainDb: number) => {
+      setBassGainState(gainDb);
+      setBassGain(gainDb);
+    },
+    [setBassGain],
+  );
 
   // Charging interval
   const chargeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -376,6 +438,12 @@ export default function App() {
                 dbLevel={realDbLevel}
                 isPlaying={isPlaying}
                 gainReduction={gainReduction}
+                dbStabGainReduction={dbStabGainReduction}
+                ampClassLevels={ampClassLevels}
+                bassLevel={bassLevel}
+                crestFactor={crestFactor}
+                bassGain={bassGain}
+                onBassGainChange={handleBassGainChange}
               />
               <FilePicker
                 audioFile={audioFile}
