@@ -9,6 +9,9 @@ interface SmartAmpChipsProps {
   crestFactor: number; // peak/RMS ratio — high (>6) = clean dynamic, low (<3) = forced/clipped
   bassGain: number; // -12 to +12 dB — 80Hz lowshelf control
   onBassGainChange: (gainDb: number) => void;
+  gainRiderDb: number; // current AGC gain rider amount in dB
+  makeupGainDb: number; // fixed +8 dB makeup gain
+  truePeakDb: number; // true peak in dBFS
 }
 
 function getDbColor(db: number): string {
@@ -17,7 +20,7 @@ function getDbColor(db: number): string {
   return "oklch(0.72 0.22 145)"; // green — safe
 }
 
-// ─── Chip 1: SIGNAL STABILIZER (170,000W TITANIUM) ─────────────────────────
+// ─── Chip 1: SIGNAL STABILIZER (80,000,000W FULL POWER) ────────────────────
 // The "system pull" side — covers EQ, bass, amp classes, signal booster, soft drive
 function StabilizerDisplay({
   isActive,
@@ -45,7 +48,7 @@ function StabilizerDisplay({
             color: isActive ? "oklch(0.78 0.18 200)" : "oklch(0.35 0.02 240)",
           }}
         >
-          170,000W
+          80,000,000W
         </div>
         <div
           className="font-mono text-[8px] tracking-widest font-bold"
@@ -183,7 +186,7 @@ function BassDisplay({
             color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.35 0.02 240)",
           }}
         >
-          80Hz BASS
+          80Hz CORRECT
         </div>
         <div
           className="font-mono text-[8px] tracking-widest font-bold tabular-nums"
@@ -199,7 +202,7 @@ function BassDisplay({
           className="font-mono text-[7px] tracking-widest mb-0.5"
           style={{ color: "oklch(0.38 0.03 240)" }}
         >
-          BASS LEVEL — LOW END 20–300Hz
+          BASS CORRECTION — LOW END 80Hz
         </div>
         <div className="flex gap-0.5">
           {BASS_SEGMENT_KEYS.map((segKey, i) => {
@@ -294,9 +297,11 @@ function BassDisplay({
 function DbMonitorDisplay({
   isActive,
   dbLevel,
+  truePeakDb,
 }: {
   isActive: boolean;
   dbLevel: number;
+  truePeakDb: number;
 }) {
   const color = getDbColor(dbLevel);
   const displayDb = Math.round(dbLevel);
@@ -336,6 +341,20 @@ function DbMonitorDisplay({
           dBFS
         </span>
       </div>
+      {/* True Peak readout — below the main RMS number */}
+      <div
+        className="flex items-center justify-center gap-1 font-mono text-[8px] tracking-widest tabular-nums"
+        style={{
+          color: isActive ? "oklch(0.78 0.18 200)" : "oklch(0.28 0.02 240)",
+        }}
+      >
+        <span style={{ color: "oklch(0.38 0.03 240)" }}>TP:</span>
+        <span>
+          {isActive
+            ? `${truePeakDb >= 0 ? "+" : ""}${truePeakDb.toFixed(1)} dBFS`
+            : "--"}
+        </span>
+      </div>
       <div
         className="font-mono text-[7px] tracking-widest text-center"
         style={{
@@ -361,16 +380,16 @@ function DbMonitorDisplay({
 }
 
 // ─── Chip 4: ADVANCED AMP ENGINE ────────────────────────────────────────────
-// Two separated 170,000W stabilizers: one for dB meter, one for the full system
-// PUSH = 4 amp classes boosting signal +12dB total
-// PULL = system stabilizer gain reduction (NO PULL BACK until full 170,000W online)
+// Two separated 80,000,000W stabilizers: one for dB meter, one for the full system
+// PUSH = gains removed — NO GAINS mode
+// PULL = system stabilizer gain reduction (FULL 80,000,000W — NO PULL BACK needed)
 const AMP_CLASS_COLORS = [
-  "oklch(0.72 0.22 145)", // A+ — green
-  "oklch(0.78 0.18 200)", // B+ — cyan
-  "oklch(0.82 0.2 95)", // C+ — yellow
-  "oklch(0.65 0.25 30)", // D+ — red/orange
+  "oklch(0.72 0.22 145)", // slot 1 — green
+  "oklch(0.78 0.18 200)", // slot 2 — cyan
+  "oklch(0.82 0.2 95)", // slot 3 — yellow
+  "oklch(0.65 0.25 30)", // slot 4 — red/orange
 ];
-const AMP_CLASS_LABELS = ["A+", "B+", "C+", "D+"];
+const AMP_CLASS_LABELS = ["NO GAIN", "NO GAIN", "NO GAIN", "NO GAIN"];
 
 // Mini stabilizer bar — shows gain reduction as a glowing bar
 function StabBar({
@@ -420,14 +439,12 @@ function AdvancedAmpEngineDisplay({
   gainReduction: number;
   dbStabGainReduction: number;
 }) {
-  const activeCount = ampClassLevels.reduce((a, b) => a + b, 0);
-  const pushDb = activeCount * 3;
   const pullDb = gainReduction;
 
   const sysIsClamping = gainReduction > 0.5;
   const dbIsClamping = dbStabGainReduction > 0.5;
 
-  // Status logic: "NO PULL BACK UNTIL FULL 170000" when both stabs are idle
+  // Status logic: "NO GAINS — STAB FULL POWER" when both stabs are idle
   // "⚡ BOTH STABS ACTIVE" when both clamping
   // Individual messages otherwise
   let statusText: string;
@@ -445,7 +462,7 @@ function AdvancedAmpEngineDisplay({
     statusText = "⚡ SYS STAB CLAMPING";
     statusColor = "oklch(0.78 0.18 200)";
   } else {
-    statusText = "○ NO PULL BACK — FULL 170,000W";
+    statusText = "○ NO GAINS — STAB FULL POWER";
     statusColor = "oklch(0.72 0.22 145 / 0.8)";
   }
 
@@ -459,7 +476,7 @@ function AdvancedAmpEngineDisplay({
     >
       {/* Two stabilizer rows */}
       <div className="flex flex-col gap-1">
-        {/* Row 1: dB STAB 170,000W */}
+        {/* Row 1: dB STAB 80,000,000W */}
         <div className="flex items-center gap-1.5">
           <div
             className="font-mono text-[7px] tracking-widest font-bold shrink-0"
@@ -495,7 +512,7 @@ function AdvancedAmpEngineDisplay({
           </div>
         </div>
 
-        {/* Row 2: SYS STAB 170,000W */}
+        {/* Row 2: SYS STAB 80,000,000W */}
         <div className="flex items-center gap-1.5">
           <div
             className="font-mono text-[7px] tracking-widest font-bold shrink-0"
@@ -532,15 +549,15 @@ function AdvancedAmpEngineDisplay({
         </div>
       </div>
 
-      {/* Push / Pull readout row */}
+      {/* Push / Pull readout row — NO GAINS mode */}
       <div className="flex items-center justify-between gap-1">
         <div
-          className="font-mono text-[8px] font-bold tracking-widest"
+          className="font-mono text-[7px] font-bold tracking-widest"
           style={{
-            color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.28 0.02 240)",
+            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.28 0.02 240)",
           }}
         >
-          PUSH ↑ +{isActive ? pushDb : 0}dB
+          {isActive ? "NO GAINS — STAB FULL POWER" : "--"}
         </div>
         <div
           className="font-mono text-[8px] font-bold tracking-widest"
@@ -829,6 +846,158 @@ function SystemHealthDisplay({
   );
 }
 
+// ─── Chip 7: GAINS REMOVED (formerly Gain Rider) ────────────────────────────
+// Gains removed — 80,000,000W stabilizer handles all signal correction
+function GainRiderDisplay({
+  isActive,
+}: {
+  isActive: boolean;
+  gainRiderDb: number;
+}) {
+  return (
+    <div
+      className="rounded p-2 flex flex-col gap-1.5"
+      style={{
+        background: "oklch(0.07 0.01 260)",
+        border: `1px solid ${isActive ? "oklch(0.55 0.08 200 / 0.4)" : "oklch(0.18 0.02 260)"}`,
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div
+          className="font-mono text-[8px] tracking-[0.2em] font-bold"
+          style={{
+            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.35 0.02 240)",
+          }}
+        >
+          GAINS OFF
+        </div>
+        <div
+          className="font-mono text-[8px] tracking-widest font-bold tabular-nums"
+          style={{
+            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.28 0.02 240)",
+          }}
+        >
+          {isActive ? "0.0 dB" : "--"}
+        </div>
+      </div>
+
+      {/* Gain bar — always 0% */}
+      <div>
+        <div
+          className="font-mono text-[7px] tracking-widest mb-0.5"
+          style={{ color: "oklch(0.38 0.03 240)" }}
+        >
+          GAIN AMOUNT — REMOVED FROM CHAIN
+        </div>
+        <div
+          className="rounded-full overflow-hidden"
+          style={{
+            height: 4,
+            background: "oklch(0.15 0.02 260)",
+            border: "1px solid oklch(0.22 0.04 240)",
+          }}
+        >
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: "0%",
+              background: "oklch(0.55 0.08 200 / 0.35)",
+              transition: "width 0.05s linear",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Status */}
+      <div
+        className="font-mono text-[7px] tracking-widest text-center"
+        style={{
+          color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.28 0.02 240)",
+        }}
+      >
+        {isActive ? "✓ NO GAINS — STABILIZER HANDLES ALL" : "AWAITING SIGNAL"}
+      </div>
+    </div>
+  );
+}
+
+// ─── Chip 8: MAKEUP GAIN REMOVED (clean signal — no post-stab boost) ─────────
+// Makeup gain removed — signal goes direct after stabilizer, no added gain
+function MakeupGainDisplay({
+  isActive,
+}: {
+  isActive: boolean;
+  makeupGainDb: number;
+}) {
+  return (
+    <div
+      className="rounded p-2 flex flex-col gap-1.5"
+      style={{
+        background: "oklch(0.07 0.01 260)",
+        border: `1px solid ${isActive ? "oklch(0.55 0.08 200 / 0.4)" : "oklch(0.18 0.02 260)"}`,
+      }}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div
+          className="font-mono text-[8px] tracking-[0.2em] font-bold"
+          style={{
+            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.35 0.02 240)",
+          }}
+        >
+          MAKEUP OFF
+        </div>
+        <div
+          className="font-mono text-[10px] font-bold tabular-nums"
+          style={{
+            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.28 0.02 240)",
+          }}
+        >
+          {isActive ? "0 dB" : "--"}
+        </div>
+      </div>
+
+      {/* Fixed makeup bar — always 0% */}
+      <div>
+        <div
+          className="font-mono text-[7px] tracking-widest mb-0.5"
+          style={{ color: "oklch(0.38 0.03 240)" }}
+        >
+          MAKEUP GAIN — REMOVED FROM CHAIN
+        </div>
+        <div
+          className="rounded-full overflow-hidden"
+          style={{
+            height: 4,
+            background: "oklch(0.15 0.02 260)",
+            border: "1px solid oklch(0.22 0.04 240)",
+          }}
+        >
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: "0%",
+              background: "oklch(0.55 0.08 200 / 0.35)",
+              transition: "width 0.3s ease",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Status */}
+      <div
+        className="font-mono text-[7px] tracking-widest text-center"
+        style={{
+          color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.28 0.02 240)",
+        }}
+      >
+        {isActive ? "✓ NO MAKEUP GAIN — CLEAN SIGNAL" : "AWAITING SIGNAL"}
+      </div>
+    </div>
+  );
+}
+
 // ─── Chip Card wrapper ───────────────────────────────────────────────────────
 function ChipCard({
   chipId,
@@ -845,6 +1014,9 @@ function ChipCard({
   crestFactor,
   bassGain,
   onBassGainChange,
+  gainRiderDb,
+  makeupGainDb,
+  truePeakDb,
 }: {
   chipId: number;
   chipName: string;
@@ -860,6 +1032,9 @@ function ChipCard({
   crestFactor: number;
   bassGain: number;
   onBassGainChange: (gainDb: number) => void;
+  gainRiderDb: number;
+  makeupGainDb: number;
+  truePeakDb: number;
 }) {
   const isActive = isUnlocked && isPlaying;
   const color = getDbColor(dbLevel);
@@ -931,7 +1106,11 @@ function ChipCard({
         />
       )}
       {chipId === 3 && (
-        <DbMonitorDisplay isActive={isActive} dbLevel={dbLevel} />
+        <DbMonitorDisplay
+          isActive={isActive}
+          dbLevel={dbLevel}
+          truePeakDb={truePeakDb}
+        />
       )}
       {chipId === 4 && (
         <AdvancedAmpEngineDisplay
@@ -951,6 +1130,12 @@ function ChipCard({
           gainReduction={gainReduction}
           crestFactor={crestFactor}
         />
+      )}
+      {chipId === 7 && (
+        <GainRiderDisplay isActive={isActive} gainRiderDb={gainRiderDb} />
+      )}
+      {chipId === 8 && (
+        <MakeupGainDisplay isActive={isActive} makeupGainDb={makeupGainDb} />
       )}
 
       {/* Description */}
@@ -983,12 +1168,13 @@ const CHIPS = [
     id: 1,
     name: "SIGNAL STABILIZER",
     description:
-      "170,000W TITANIUM — SYS limiter, 100:1 ratio, over everything",
+      "80,000,000W FULL POWER — NO GAINS, SYS limiter over everything",
   },
   {
     id: 2,
     name: "BASS PROCESSOR",
-    description: "80Hz smooth low-freq, zero bass bleed",
+    description:
+      "80Hz CORRECTION ONLY — slider for manual bass control, no auto gains",
   },
   {
     id: 3,
@@ -998,7 +1184,7 @@ const CHIPS = [
   {
     id: 4,
     name: "ADVANCED AMP ENGINE",
-    description: "ADVANCED — 2x 170,000W separated stabilizers",
+    description: "2x 80,000,000W STABS — NO GAINS, STAB HANDLES ALL",
   },
   {
     id: 5,
@@ -1009,6 +1195,16 @@ const CHIPS = [
     id: 6,
     name: "SIGNAL BOOSTER",
     description: "FPGA-grade processor, world class power",
+  },
+  {
+    id: 7,
+    name: "GAIN RIDER",
+    description: "GAINS REMOVED — 80,000,000W stab handles all correction",
+  },
+  {
+    id: 8,
+    name: "MAKEUP GAIN",
+    description: "MAKEUP GAIN REMOVED — signal goes direct",
   },
 ] as const;
 
@@ -1024,8 +1220,11 @@ export function SmartAmpChips({
   crestFactor,
   bassGain,
   onBassGainChange,
+  gainRiderDb,
+  makeupGainDb,
+  truePeakDb,
 }: SmartAmpChipsProps) {
-  const activeCount = isUnlocked ? 6 : 0;
+  const activeCount = isUnlocked ? 8 : 0;
 
   return (
     <div
@@ -1039,7 +1238,7 @@ export function SmartAmpChips({
             className="font-mono text-xs tracking-[0.3em] font-bold uppercase"
             style={{ color: "oklch(0.55 0.04 220)" }}
           >
-            6 SMART AMP CHIPS
+            8 SMART AMP CHIPS
           </h2>
           <div
             className="font-mono text-[10px] tracking-widest mt-0.5"
@@ -1050,7 +1249,7 @@ export function SmartAmpChips({
               transition: "color 0.5s ease",
             }}
           >
-            {isUnlocked ? `● ${activeCount}/6 CHIPS ACTIVE` : "○ CHIPS OFFLINE"}
+            {isUnlocked ? `● ${activeCount}/8 CHIPS ACTIVE` : "○ CHIPS OFFLINE"}
           </div>
         </div>
         <div className="flex flex-col items-end gap-0.5">
@@ -1087,7 +1286,7 @@ export function SmartAmpChips({
         </div>
       </div>
 
-      {/* Chips grid — 2 columns x 3 rows */}
+      {/* Chips grid — 2 columns x 4 rows */}
       <div className="grid grid-cols-2 gap-2">
         {CHIPS.map((chip, idx) => (
           <ChipCard
@@ -1106,6 +1305,9 @@ export function SmartAmpChips({
             crestFactor={crestFactor}
             bassGain={bassGain}
             onBassGainChange={onBassGainChange}
+            gainRiderDb={gainRiderDb}
+            makeupGainDb={makeupGainDb}
+            truePeakDb={truePeakDb}
           />
         ))}
       </div>

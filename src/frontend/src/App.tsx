@@ -80,6 +80,9 @@ export default function App() {
     ampClassLevels,
     bassLevel,
     crestFactor,
+    gainRiderDb,
+    makeupGainDb,
+    truePeakDb,
   } = useAudioEngine();
 
   // 80Hz bass gain state (-12 to +12 dB)
@@ -444,6 +447,9 @@ export default function App() {
                 crestFactor={crestFactor}
                 bassGain={bassGain}
                 onBassGainChange={handleBassGainChange}
+                gainRiderDb={gainRiderDb}
+                makeupGainDb={makeupGainDb}
+                truePeakDb={truePeakDb}
               />
               <FilePicker
                 audioFile={audioFile}
