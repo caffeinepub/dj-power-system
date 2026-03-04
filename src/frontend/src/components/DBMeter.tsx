@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 
+export type DbControlCommand = "green-hold" | "pull-back" | "emergency-clamp";
+
 interface DBMeterProps {
   dbLevel: number;
   isPlaying: boolean;
   gainReduction: number;
+  dbControlCommand?: DbControlCommand;
 }
 
 const DB_MIN = 60;
 const DB_MAX = 120;
 const DB_RANGE = DB_MAX - DB_MIN;
 
-function getSegmentColor(db: number): string {
-  // With 17000W stabilizer active, reaching 100+ is exceptional (signal > -6 dBFS post-compressor)
-  if (db >= 105) return "oklch(0.62 0.22 25)"; // red — clip zone (stabilizer overwhelmed)
+function getSegmentColor(db: number, controlled: boolean): string {
+  if (controlled) return "oklch(0.72 0.22 145)"; // always green when chip commands it
+  if (db >= 105) return "oklch(0.62 0.22 25)"; // red — clip zone
   if (db >= 90) return "oklch(0.82 0.2 95)"; // yellow — hot
   return "oklch(0.72 0.22 145)"; // green — safe
 }
@@ -21,10 +24,12 @@ function SegmentBar({
   db,
   peakDb,
   offset = 0,
+  controlled,
 }: {
   db: number;
   peakDb: number;
   offset?: number;
+  controlled: boolean;
 }) {
   const totalSegments = 30;
   const activeSegments = Math.round(((db - DB_MIN) / DB_RANGE) * totalSegments);
@@ -38,7 +43,7 @@ function SegmentBar({
         const segDb = DB_MIN + (segIdx / (totalSegments - 1)) * DB_RANGE;
         const isActive = segIdx < activeSegments;
         const isPeak = segIdx === peakSegment && peakDb > DB_MIN + 1;
-        const color = getSegmentColor(segDb);
+        const color = getSegmentColor(segDb, controlled);
         const segDbKey = (segDb + offset).toFixed(1);
 
         return (
@@ -67,7 +72,12 @@ function SegmentBar({
   );
 }
 
-export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
+export function DBMeter({
+  dbLevel,
+  isPlaying,
+  gainReduction,
+  dbControlCommand = "green-hold",
+}: DBMeterProps) {
   const peakRef = useRef(DB_MIN);
   const [peakDisplay, setPeakDisplay] = useState(DB_MIN);
 
@@ -101,8 +111,15 @@ export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
   const displayDb = Math.round(dbLevel);
   const peakDb = Math.round(peakDisplay);
 
-  const dbColor =
-    displayDb >= 105
+  // Chip is commanding the dB box to stay green
+  const isControlled =
+    isPlaying &&
+    (dbControlCommand === "pull-back" ||
+      dbControlCommand === "emergency-clamp");
+
+  const dbColor = isControlled
+    ? "oklch(0.72 0.22 145)"
+    : displayDb >= 105
       ? "oklch(0.62 0.22 25)"
       : displayDb >= 90
         ? "oklch(0.82 0.2 95)"
@@ -110,6 +127,27 @@ export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
 
   // Slightly offset second channel for stereo feel
   const dbLevelR = Math.max(DB_MIN, dbLevel - 1.5);
+
+  // Zone label text — chip can override to show SAFE — CTRL
+  const zoneLabel = !isPlaying
+    ? "● STANDBY"
+    : isControlled
+      ? "● SAFE — CTRL"
+      : displayDb >= 105
+        ? "⚠ CLIP ZONE"
+        : displayDb >= 90
+          ? "● HOT"
+          : "● SAFE";
+
+  const zoneLabelColor = isControlled
+    ? "oklch(0.55 0.15 145)"
+    : !isPlaying
+      ? "oklch(0.35 0.02 240)"
+      : displayDb >= 105
+        ? "oklch(0.72 0.22 25)"
+        : displayDb >= 90
+          ? "oklch(0.82 0.2 95)"
+          : "oklch(0.55 0.15 145)";
 
   return (
     <div
@@ -181,6 +219,19 @@ export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
         >
           dBFS
         </div>
+
+        {/* CTRL override indicator */}
+        {isControlled && (
+          <div
+            className="font-mono text-[8px] tracking-widest mt-1"
+            style={{
+              color: "oklch(0.88 0.25 145)",
+              textShadow: "0 0 8px oklch(0.72 0.22 145 / 0.7)",
+            }}
+          >
+            CTRL: GREEN HOLD
+          </div>
+        )}
       </div>
 
       {/* Main display */}
@@ -195,8 +246,9 @@ export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
               key={db}
               className="font-mono text-[9px] text-right"
               style={{
-                color:
-                  db >= 100
+                color: isControlled
+                  ? "oklch(0.55 0.05 145 / 0.7)"
+                  : db >= 100
                     ? "oklch(0.62 0.22 25 / 0.7)"
                     : db >= 85
                       ? "oklch(0.82 0.2 95 / 0.7)"
@@ -210,11 +262,17 @@ export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
 
         {/* Meter bars — dual channel (L + R) */}
         <div className="flex gap-1.5 flex-1">
-          <SegmentBar db={dbLevel} peakDb={peakDisplay} offset={0} />
+          <SegmentBar
+            db={dbLevel}
+            peakDb={peakDisplay}
+            offset={0}
+            controlled={isControlled}
+          />
           <SegmentBar
             db={dbLevelR}
             peakDb={Math.max(DB_MIN, peakDisplay - 1)}
             offset={0.5}
+            controlled={isControlled}
           />
         </div>
 
@@ -226,16 +284,18 @@ export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
           <div
             className="rounded-sm flex-1"
             style={{
-              background:
-                "linear-gradient(to bottom, oklch(0.62 0.22 25 / 0.4), oklch(0.62 0.22 25 / 0.1))",
+              background: isControlled
+                ? "linear-gradient(to bottom, oklch(0.72 0.22 145 / 0.4), oklch(0.72 0.22 145 / 0.1))"
+                : "linear-gradient(to bottom, oklch(0.62 0.22 25 / 0.4), oklch(0.62 0.22 25 / 0.1))",
               height: "33%",
             }}
           />
           <div
             className="rounded-sm"
             style={{
-              background:
-                "linear-gradient(to bottom, oklch(0.82 0.2 95 / 0.4), oklch(0.82 0.2 95 / 0.1))",
+              background: isControlled
+                ? "linear-gradient(to bottom, oklch(0.72 0.22 145 / 0.35), oklch(0.72 0.22 145 / 0.1))"
+                : "linear-gradient(to bottom, oklch(0.82 0.2 95 / 0.4), oklch(0.82 0.2 95 / 0.1))",
               height: "25%",
             }}
           />
@@ -260,7 +320,9 @@ export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
           <span
             style={{
               color: isPlaying
-                ? getSegmentColor(peakDisplay)
+                ? isControlled
+                  ? "oklch(0.72 0.22 145)"
+                  : getSegmentColor(peakDisplay, false)
                 : "oklch(0.35 0.02 240)",
             }}
           >
@@ -272,22 +334,9 @@ export function DBMeter({ dbLevel, isPlaying, gainReduction }: DBMeterProps) {
         {/* Zone indicator */}
         <div
           className="mt-1 font-mono text-[9px] tracking-widest"
-          style={{
-            color:
-              displayDb >= 105
-                ? "oklch(0.72 0.22 25)"
-                : displayDb >= 90
-                  ? "oklch(0.82 0.2 95)"
-                  : "oklch(0.55 0.15 145)",
-          }}
+          style={{ color: zoneLabelColor }}
         >
-          {!isPlaying
-            ? "● STANDBY"
-            : displayDb >= 105
-              ? "⚠ CLIP ZONE"
-              : displayDb >= 90
-                ? "● HOT"
-                : "● SAFE"}
+          {zoneLabel}
         </div>
 
         {/* Stabilizer gain reduction readout */}

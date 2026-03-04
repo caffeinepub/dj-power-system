@@ -219,6 +219,62 @@
   .animate-db-flicker { animation: db-flicker 0.1s ease-in-out infinite; }
   .animate-flicker { animation: flicker 5s ease-in-out infinite; }
 
+  /* ===== MASTER MEMORY CHIP ANIMATIONS ===== */
+
+  /* Heartbeat pulse on the chip border glow */
+  @keyframes chip-heartbeat {
+    0%, 100% {
+      box-shadow:
+        0 0 20px oklch(0.72 0.22 145 / 0.35),
+        0 0 50px oklch(0.72 0.22 145 / 0.15),
+        inset 0 0 30px oklch(0.72 0.22 145 / 0.04);
+    }
+    15% {
+      box-shadow:
+        0 0 30px oklch(0.72 0.22 145 / 0.6),
+        0 0 70px oklch(0.72 0.22 145 / 0.3),
+        inset 0 0 40px oklch(0.72 0.22 145 / 0.08);
+    }
+    30% {
+      box-shadow:
+        0 0 20px oklch(0.72 0.22 145 / 0.35),
+        0 0 50px oklch(0.72 0.22 145 / 0.15),
+        inset 0 0 30px oklch(0.72 0.22 145 / 0.04);
+    }
+    45% {
+      box-shadow:
+        0 0 28px oklch(0.72 0.22 145 / 0.55),
+        0 0 65px oklch(0.72 0.22 145 / 0.25),
+        inset 0 0 38px oklch(0.72 0.22 145 / 0.07);
+    }
+  }
+
+  /* LED alive pulse */
+  @keyframes chip-led-pulse {
+    0%, 100% {
+      opacity: 1;
+      box-shadow: 0 0 8px oklch(0.88 0.25 145), 0 0 16px oklch(0.72 0.22 145 / 0.6);
+    }
+    50% {
+      opacity: 0.7;
+      box-shadow: 0 0 4px oklch(0.88 0.25 145), 0 0 8px oklch(0.72 0.22 145 / 0.3);
+    }
+  }
+
+  /* Memory bar shimmer scan */
+  @keyframes memory-shimmer {
+    0%   { left: -60%; }
+    100% { left: 160%; }
+  }
+
+  /* Badge subtle flicker */
+  @keyframes chip-badge-flicker {
+    0%, 90%, 100% { opacity: 1; }
+    92% { opacity: 0.7; }
+    94% { opacity: 1; }
+    96% { opacity: 0.8; }
+  }
+
   /* Glass panel effect */
   .glass-panel {
     background: oklch(0.11 0.015 260 / 0.85);

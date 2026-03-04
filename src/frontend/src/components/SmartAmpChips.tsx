@@ -15,8 +15,8 @@ interface SmartAmpChipsProps {
 }
 
 function getDbColor(db: number): string {
-  if (db >= 105) return "oklch(0.62 0.22 25)"; // red — clip zone
-  if (db >= 90) return "oklch(0.82 0.2 95)"; // yellow — hot
+  if (db >= 115) return "oklch(0.62 0.22 25)"; // red — clip zone
+  if (db >= 95) return "oklch(0.82 0.2 95)"; // yellow — hot
   return "oklch(0.72 0.22 145)"; // green — safe
 }
 
@@ -157,7 +157,7 @@ function BassDisplay({
   bassGain: number;
   onBassGainChange: (gainDb: number) => void;
 }) {
-  const isHot = bassLevel >= 65;
+  const isHot = bassLevel >= 80;
   const bassColor = isHot ? "oklch(0.65 0.25 30)" : "oklch(0.72 0.22 145)";
   const segments = 10;
   const filled = isActive ? Math.round((bassLevel / 100) * segments) : 0;
@@ -359,18 +359,18 @@ function DbMonitorDisplay({
         className="font-mono text-[7px] tracking-widest text-center"
         style={{
           color: isActive
-            ? dbLevel >= 105
+            ? dbLevel >= 115
               ? "oklch(0.62 0.22 25)"
-              : dbLevel >= 90
+              : dbLevel >= 95
                 ? "oklch(0.82 0.2 95)"
                 : "oklch(0.72 0.22 145)"
             : "oklch(0.28 0.02 240)",
         }}
       >
         {isActive
-          ? dbLevel >= 105
+          ? dbLevel >= 115
             ? "⚡ HOT ZONE"
-            : dbLevel >= 90
+            : dbLevel >= 95
               ? "● SIGNAL STRONG"
               : "○ SIGNAL NORMAL"
           : "AWAITING SIGNAL"}
@@ -638,8 +638,8 @@ function DriveDisplay({
   // Normalize crest factor to a 0–100 quality bar
   // Map: 1 = worst (0%), 10+ = best (100%)
   const qualityPct = Math.min(100, Math.round(((crestFactor - 1) / 9) * 100));
-  const isForced = isActive && crestFactor < 3;
-  const isClean = isActive && crestFactor >= 6;
+  const isForced = isActive && crestFactor < 1.5;
+  const isClean = isActive && crestFactor >= 4;
   const driveColor = isForced
     ? "oklch(0.62 0.22 25)"
     : isClean
@@ -734,18 +734,17 @@ function DriveDisplay({
 // AMP = amp classes active, STAB = stabilizer not overwhelmed, DRIVE = crest factor clean
 function SystemHealthDisplay({
   isActive,
-  ampClassLevels,
   gainReduction,
   crestFactor,
 }: {
   isActive: boolean;
-  ampClassLevels: number[];
   gainReduction: number;
   crestFactor: number;
 }) {
-  const ampOk = isActive && ampClassLevels.reduce((a, b) => a + b, 0) > 0;
+  // NO GAINS mode: AMP is healthy if the stabilizer chain is confirmed active (gainReduction is readable)
+  const ampOk = isActive && gainReduction >= 0; // stabilizer chain confirmed active — no gains needed
   const stabOk = isActive && gainReduction < 20; // titanium stabilizer — wider tolerance
-  const driveOk = isActive && crestFactor >= 2; // allow more compressed signals
+  const driveOk = isActive && crestFactor >= 1.5; // allow more compressed signals
 
   const allOk = ampOk && stabOk && driveOk;
   const overallColor = allOk ? "oklch(0.72 0.22 145)" : "oklch(0.65 0.25 30)";
@@ -1126,7 +1125,6 @@ function ChipCard({
       {chipId === 6 && (
         <SystemHealthDisplay
           isActive={isActive}
-          ampClassLevels={ampClassLevels}
           gainReduction={gainReduction}
           crestFactor={crestFactor}
         />

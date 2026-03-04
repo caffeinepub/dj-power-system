@@ -2,15 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BatteryPanel } from "./components/BatteryPanel";
 import { Chainblock } from "./components/Chainblock";
 import { ChargerUnit } from "./components/ChargerUnit";
-import { DBMeter } from "./components/DBMeter";
+import { DBMeter, type DbControlCommand } from "./components/DBMeter";
 import { DJEqualizer } from "./components/DJEqualizer";
 import { FilePicker } from "./components/FilePicker";
+import { MasterMemoryChip } from "./components/MasterMemoryChip";
 import { SmartAmpChips } from "./components/SmartAmpChips";
 import { useAudioEngine } from "./hooks/useAudioEngine";
 
 const DEFAULT_EQ_BANDS = [70, 70, 70, 72, 75, 73, 70, 68, 65, 62];
 const LS_CHARGE_KEY = "dj-power-charge-level";
 const LS_EQ_KEY = "dj-power-eq-bands";
+const LS_BASS_GAIN_KEY = "dj-power-bass-gain";
+const LS_MASTER_MEMORY_KEY = "dj-master-memory-chip";
 
 // Load saved value from localStorage, return fallback if missing/invalid
 function loadFromStorage<T>(
@@ -36,6 +39,10 @@ function isEqBands(v: unknown): v is number[] {
   return (
     Array.isArray(v) && v.length === 10 && v.every((x) => typeof x === "number")
   );
+}
+
+function isBassGain(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= -12 && v <= 12;
 }
 
 // Map EQ slider 0-100 → gain -12 to +12 dB
@@ -85,8 +92,10 @@ export default function App() {
     truePeakDb,
   } = useAudioEngine();
 
-  // 80Hz bass gain state (-12 to +12 dB)
-  const [bassGain, setBassGainState] = useState(0);
+  // 80Hz bass gain state (-12 to +12 dB) — hydrated from localStorage
+  const [bassGain, setBassGainState] = useState(() =>
+    loadFromStorage(LS_BASS_GAIN_KEY, 0, isBassGain),
+  );
 
   const handleBassGainChange = useCallback(
     (gainDb: number) => {
@@ -95,6 +104,28 @@ export default function App() {
     },
     [setBassGain],
   );
+
+  // Persist bassGain to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(LS_BASS_GAIN_KEY, JSON.stringify(bassGain));
+  }, [bassGain]);
+
+  // Persist full system snapshot to master memory chip (never lose memory)
+  useEffect(() => {
+    const snapshot = {
+      timestamp: Date.now(),
+      chargeLevel,
+      isPlaying,
+      isUnlocked,
+      eqBands,
+      bassGain,
+    };
+    try {
+      localStorage.setItem(LS_MASTER_MEMORY_KEY, JSON.stringify(snapshot));
+    } catch {
+      // storage full — silent fail
+    }
+  }, [chargeLevel, isPlaying, isUnlocked, eqBands, bassGain]);
 
   // Charging interval
   const chargeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -184,6 +215,14 @@ export default function App() {
     [setEqGain],
   );
 
+  // Master Memory Chip control command — signals DBMeter to stay green
+  const dbControlCommand: DbControlCommand =
+    realDbLevel >= 105
+      ? "emergency-clamp"
+      : realDbLevel >= 90
+        ? "pull-back"
+        : "green-hold";
+
   // When a new audio element is ready, connect it to the Web Audio graph
   const handleAudioElementReady = useCallback(
     (el: HTMLAudioElement) => {
@@ -200,6 +239,95 @@ export default function App() {
         fontFamily: "JetBrains Mono, Geist Mono, monospace",
       }}
     >
+      {/* ===== STUDIO NAMEPLATE ===== */}
+      <div
+        className="relative z-20 w-full flex items-center justify-center gap-2"
+        style={{
+          background:
+            "linear-gradient(90deg, oklch(0.06 0.008 260) 0%, oklch(0.09 0.015 240) 50%, oklch(0.06 0.008 260) 100%)",
+          borderBottom: "1px solid oklch(0.78 0.18 200 / 0.18)",
+          padding: "6px 16px",
+        }}
+      >
+        {/* Left accent line */}
+        <div
+          style={{
+            flex: 1,
+            maxWidth: 120,
+            height: 1,
+            background:
+              "linear-gradient(to right, transparent, oklch(0.78 0.18 200 / 0.35))",
+          }}
+        />
+
+        <span
+          className="font-mono tracking-[0.22em] uppercase select-none"
+          style={{
+            fontSize: "9px",
+            color: "oklch(0.55 0.06 220)",
+            letterSpacing: "0.22em",
+          }}
+        >
+          Gerrod&nbsp;/&nbsp;GP Custom Built
+        </span>
+
+        <span
+          style={{
+            width: 3,
+            height: 3,
+            borderRadius: "50%",
+            background: "oklch(0.78 0.18 200 / 0.5)",
+            boxShadow: "0 0 4px oklch(0.78 0.18 200 / 0.6)",
+            flexShrink: 0,
+          }}
+        />
+
+        <span
+          className="font-mono tracking-[0.22em] uppercase select-none"
+          style={{
+            fontSize: "9px",
+            color: "oklch(0.72 0.16 200)",
+            textShadow: "0 0 10px oklch(0.78 0.18 200 / 0.35)",
+            letterSpacing: "0.22em",
+          }}
+        >
+          Engineer&nbsp;&amp;&nbsp;Product Designer
+        </span>
+
+        <span
+          style={{
+            width: 3,
+            height: 3,
+            borderRadius: "50%",
+            background: "oklch(0.78 0.18 200 / 0.5)",
+            boxShadow: "0 0 4px oklch(0.78 0.18 200 / 0.6)",
+            flexShrink: 0,
+          }}
+        />
+
+        <span
+          className="font-mono tracking-[0.22em] uppercase select-none"
+          style={{
+            fontSize: "9px",
+            color: "oklch(0.42 0.04 240)",
+            letterSpacing: "0.22em",
+          }}
+        >
+          Built with AI
+        </span>
+
+        {/* Right accent line */}
+        <div
+          style={{
+            flex: 1,
+            maxWidth: 120,
+            height: 1,
+            background:
+              "linear-gradient(to left, transparent, oklch(0.78 0.18 200 / 0.35))",
+          }}
+        />
+      </div>
+
       {/* Background grid pattern */}
       <div
         className="fixed inset-0 pointer-events-none"
@@ -478,10 +606,28 @@ export default function App() {
                 dbLevel={realDbLevel}
                 isPlaying={isPlaying}
                 gainReduction={gainReduction}
+                dbControlCommand={dbControlCommand}
               />
             </div>
           </div>
         </main>
+
+        {/* ===== MASTER MEMORY CHIP ===== */}
+        <div className="mt-6">
+          <MasterMemoryChip
+            chargeLevel={chargeLevel}
+            realDbLevel={realDbLevel}
+            truePeakDb={truePeakDb}
+            bassLevel={bassLevel}
+            bassGain={bassGain}
+            crestFactor={crestFactor}
+            gainReduction={gainReduction}
+            dbStabGainReduction={dbStabGainReduction}
+            eqBands={eqBands}
+            isPlaying={isPlaying}
+            isUnlocked={isUnlocked}
+          />
+        </div>
 
         {/* ===== FOOTER ===== */}
         <footer className="mt-8 pt-4">
