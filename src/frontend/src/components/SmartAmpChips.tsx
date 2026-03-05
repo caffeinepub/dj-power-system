@@ -12,6 +12,7 @@ interface SmartAmpChipsProps {
   gainRiderDb: number; // current AGC gain rider amount in dB
   makeupGainDb: number; // fixed +8 dB makeup gain
   truePeakDb: number; // true peak in dBFS
+  bassAuthorityMode: boolean; // commanded by Master Memory Chip — 80Hz authority mode (deeper Q, -2dB trim, highpass shelf)
 }
 
 function getDbColor(db: number): string {
@@ -34,7 +35,7 @@ function StabilizerDisplay({
 
   return (
     <div
-      className="rounded p-2 flex flex-col gap-1.5"
+      className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
         border: `1px solid ${isActive ? (isClamping ? "oklch(0.72 0.22 145 / 0.5)" : "oklch(0.78 0.18 200 / 0.3)") : "oklch(0.18 0.02 260)"}`,
@@ -146,19 +147,30 @@ const DRIVE_SEGMENT_KEYS = [
 
 // ─── Chip 2: BASS PROCESSOR ─────────────────────────────────────────────────
 // Reads real FFT low-frequency bins (20–300Hz), shows BASS LEVEL bar + 80Hz slider
+// bassAuthorityMode: commanded by Master Memory Chip — wider Q, -2dB trim, highpass shelf at 200Hz
+// 80Hz stays FIXED always — authority mode changes how the bass sounds, not the frequency
 function BassDisplay({
   isActive,
   bassLevel,
   bassGain,
   onBassGainChange,
+  bassAuthorityMode,
 }: {
   isActive: boolean;
   bassLevel: number;
   bassGain: number;
   onBassGainChange: (gainDb: number) => void;
+  bassAuthorityMode: boolean;
 }) {
   const isHot = bassLevel >= 80;
-  const bassColor = isHot ? "oklch(0.65 0.25 30)" : "oklch(0.72 0.22 145)";
+  const bassColor = isHot
+    ? "oklch(0.65 0.25 30)"
+    : bassAuthorityMode
+      ? "oklch(0.78 0.18 200)"
+      : "oklch(0.72 0.22 145)";
+  const headerColor = bassAuthorityMode
+    ? "oklch(0.78 0.18 200)"
+    : "oklch(0.72 0.22 145)";
   const segments = 10;
   const filled = isActive ? Math.round((bassLevel / 100) * segments) : 0;
   const gainLabel =
@@ -168,25 +180,58 @@ function BassDisplay({
       ? "oklch(0.65 0.25 30)"
       : bassGain > 0
         ? "oklch(0.82 0.2 95)"
-        : "oklch(0.72 0.22 145)";
+        : bassAuthorityMode
+          ? "oklch(0.78 0.18 200)"
+          : "oklch(0.72 0.22 145)";
+
+  // 80Hz always fixed — authority mode changes character, not frequency
+  const headerLabel = bassAuthorityMode ? "80Hz AUTHORITY" : "80Hz CORRECT";
+  const corrLabel = bassAuthorityMode
+    ? "AUTHORITY — 80Hz DEEP · NO BLEED"
+    : "BASS CORRECTION — LOW END 80Hz";
+  const controlLabel = bassAuthorityMode
+    ? "80Hz AUTHORITY CONTROL"
+    : "80Hz CONTROL";
 
   return (
     <div
-      className="rounded p-2 flex flex-col gap-1.5"
+      className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
-        border: `1px solid ${isActive ? (isHot ? "oklch(0.65 0.25 30 / 0.5)" : "oklch(0.72 0.22 145 / 0.3)") : "oklch(0.18 0.02 260)"}`,
+        border: `1px solid ${isActive ? (isHot ? "oklch(0.65 0.25 30 / 0.5)" : bassAuthorityMode ? "oklch(0.78 0.18 200 / 0.4)" : "oklch(0.72 0.22 145 / 0.3)") : "oklch(0.18 0.02 260)"}`,
+        boxShadow:
+          isActive && bassAuthorityMode
+            ? "0 0 8px oklch(0.78 0.18 200 / 0.12)"
+            : "none",
+        transition: "border-color 0.2s ease, box-shadow 0.2s ease",
       }}
     >
       {/* Header row */}
       <div className="flex items-center justify-between">
-        <div
-          className="font-mono text-[8px] tracking-[0.2em] font-bold"
-          style={{
-            color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.35 0.02 240)",
-          }}
-        >
-          80Hz CORRECT
+        <div className="flex items-center gap-1">
+          <div
+            className="font-mono text-[8px] tracking-[0.2em] font-bold"
+            style={{
+              color: isActive ? headerColor : "oklch(0.35 0.02 240)",
+              transition: "color 0.2s ease",
+            }}
+          >
+            {headerLabel}
+          </div>
+          {/* Authority badge */}
+          {bassAuthorityMode && isActive && (
+            <span
+              className="font-mono text-[6px] tracking-wider font-bold rounded"
+              style={{
+                color: "oklch(0.78 0.18 200)",
+                background: "oklch(0.78 0.18 200 / 0.12)",
+                border: "1px solid oklch(0.78 0.18 200 / 0.35)",
+                padding: "0px 3px",
+              }}
+            >
+              AUTH
+            </span>
+          )}
         </div>
         <div
           className="font-mono text-[8px] tracking-widest font-bold tabular-nums"
@@ -202,7 +247,7 @@ function BassDisplay({
           className="font-mono text-[7px] tracking-widest mb-0.5"
           style={{ color: "oklch(0.38 0.03 240)" }}
         >
-          BASS CORRECTION — LOW END 80Hz
+          {corrLabel}
         </div>
         <div className="flex gap-0.5">
           {BASS_SEGMENT_KEYS.map((segKey, i) => {
@@ -212,7 +257,9 @@ function BassDisplay({
                 ? "oklch(0.65 0.25 30)"
                 : i >= 5
                   ? "oklch(0.82 0.2 95)"
-                  : "oklch(0.72 0.22 145)";
+                  : bassAuthorityMode
+                    ? "oklch(0.78 0.18 200)"
+                    : "oklch(0.72 0.22 145)";
             return (
               <div
                 key={segKey}
@@ -231,14 +278,18 @@ function BassDisplay({
         </div>
       </div>
 
-      {/* 80Hz control slider */}
+      {/* Bass control slider */}
       <div>
         <div className="flex items-center justify-between mb-0.5">
           <div
             className="font-mono text-[7px] tracking-widest"
-            style={{ color: "oklch(0.38 0.03 240)" }}
+            style={{
+              color: bassAuthorityMode
+                ? "oklch(0.45 0.1 200)"
+                : "oklch(0.38 0.03 240)",
+            }}
           >
-            80Hz CONTROL
+            {controlLabel}
           </div>
           <div
             className="font-mono text-[8px] font-bold tabular-nums"
@@ -283,11 +334,19 @@ function BassDisplay({
           color: isActive
             ? isHot
               ? "oklch(0.65 0.25 30)"
-              : "oklch(0.72 0.22 145)"
+              : bassAuthorityMode
+                ? "oklch(0.78 0.18 200)"
+                : "oklch(0.72 0.22 145)"
             : "oklch(0.28 0.02 240)",
         }}
       >
-        {isActive ? (isHot ? "⚠ BASS HOT" : "✓ BASS CLEAN") : "AWAITING SIGNAL"}
+        {isActive
+          ? isHot
+            ? "⚠ BASS HOT"
+            : bassAuthorityMode
+              ? "⬇ CMD: BASS AUTHORITY ON"
+              : "✓ BASS CLEAN"
+          : "AWAITING SIGNAL"}
       </div>
     </div>
   );
@@ -308,7 +367,7 @@ function DbMonitorDisplay({
 
   return (
     <div
-      className="rounded p-2 flex flex-col gap-1"
+      className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
         border: `1px solid ${isActive ? `${color}30` : "oklch(0.18 0.02 260)"}`,
@@ -324,7 +383,7 @@ function DbMonitorDisplay({
         <span
           className="font-mono font-bold tracking-wider tabular-nums"
           style={{
-            fontSize: 26,
+            fontSize: 20,
             color: isActive ? color : "oklch(0.3 0.02 240)",
             textShadow: isActive
               ? `0 0 10px ${color}, 0 0 20px ${color}60`
@@ -468,7 +527,7 @@ function AdvancedAmpEngineDisplay({
 
   return (
     <div
-      className="rounded p-2 flex flex-col gap-1.5"
+      className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
         border: `1px solid ${isActive ? "oklch(0.78 0.18 200 / 0.3)" : "oklch(0.18 0.02 260)"}`,
@@ -651,7 +710,7 @@ function DriveDisplay({
 
   return (
     <div
-      className="rounded p-2 flex flex-col gap-1.5"
+      className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
         border: `1px solid ${isActive ? (isForced ? "oklch(0.62 0.22 25 / 0.5)" : "oklch(0.72 0.22 145 / 0.3)") : "oklch(0.18 0.02 260)"}`,
@@ -757,7 +816,7 @@ function SystemHealthDisplay({
 
   return (
     <div
-      className="rounded p-2 flex flex-col gap-1.5"
+      className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
         border: `1px solid ${isActive ? (allOk ? "oklch(0.72 0.22 145 / 0.4)" : "oklch(0.65 0.25 30 / 0.4)") : "oklch(0.18 0.02 260)"}`,
@@ -855,7 +914,7 @@ function GainRiderDisplay({
 }) {
   return (
     <div
-      className="rounded p-2 flex flex-col gap-1.5"
+      className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
         border: `1px solid ${isActive ? "oklch(0.55 0.08 200 / 0.4)" : "oklch(0.18 0.02 260)"}`,
@@ -931,7 +990,7 @@ function MakeupGainDisplay({
 }) {
   return (
     <div
-      className="rounded p-2 flex flex-col gap-1.5"
+      className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
         border: `1px solid ${isActive ? "oklch(0.55 0.08 200 / 0.4)" : "oklch(0.18 0.02 260)"}`,
@@ -1016,6 +1075,7 @@ function ChipCard({
   gainRiderDb,
   makeupGainDb,
   truePeakDb,
+  bassAuthorityMode,
 }: {
   chipId: number;
   chipName: string;
@@ -1034,6 +1094,7 @@ function ChipCard({
   gainRiderDb: number;
   makeupGainDb: number;
   truePeakDb: number;
+  bassAuthorityMode: boolean;
 }) {
   const isActive = isUnlocked && isPlaying;
   const color = getDbColor(dbLevel);
@@ -1041,7 +1102,7 @@ function ChipCard({
   return (
     <div
       data-ocid={`chips.item.${index + 1}`}
-      className="rounded-lg p-3 flex flex-col gap-1.5 relative overflow-hidden"
+      className="rounded-lg p-2 flex flex-col gap-1 relative overflow-hidden"
       style={{
         background: isActive
           ? "oklch(0.11 0.025 220 / 0.9)"
@@ -1057,8 +1118,8 @@ function ChipCard({
         <div
           className="flex items-center justify-center rounded font-mono font-bold text-[9px] shrink-0"
           style={{
-            width: 20,
-            height: 20,
+            width: 16,
+            height: 16,
             background: isActive ? `${color}25` : "oklch(0.15 0.02 260)",
             border: `1px solid ${isActive ? `${color}60` : "oklch(0.22 0.04 240)"}`,
             color: isActive ? color : "oklch(0.35 0.02 240)",
@@ -1082,8 +1143,8 @@ function ChipCard({
         {/* Active glow dot */}
         <div
           style={{
-            width: 5,
-            height: 5,
+            width: 4,
+            height: 4,
             borderRadius: "50%",
             background: isActive ? color : "oklch(0.22 0.03 240)",
             boxShadow: isActive ? `0 0 6px ${color}` : "none",
@@ -1102,6 +1163,7 @@ function ChipCard({
           bassLevel={bassLevel}
           bassGain={bassGain}
           onBassGainChange={onBassGainChange}
+          bassAuthorityMode={bassAuthorityMode}
         />
       )}
       {chipId === 3 && (
@@ -1221,16 +1283,17 @@ export function SmartAmpChips({
   gainRiderDb,
   makeupGainDb,
   truePeakDb,
+  bassAuthorityMode,
 }: SmartAmpChipsProps) {
   const activeCount = isUnlocked ? 8 : 0;
 
   return (
     <div
       data-ocid="chips.panel"
-      className={`glass-panel rounded-xl p-5 relative overflow-hidden ${isUnlocked ? "glass-panel-active" : ""}`}
+      className={`glass-panel rounded-xl p-3 relative overflow-hidden ${isUnlocked ? "glass-panel-active" : ""}`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <div>
           <h2
             className="font-mono text-xs tracking-[0.3em] font-bold uppercase"
@@ -1285,7 +1348,7 @@ export function SmartAmpChips({
       </div>
 
       {/* Chips grid — 2 columns x 4 rows */}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-1.5">
         {CHIPS.map((chip, idx) => (
           <ChipCard
             key={chip.id}
@@ -1306,6 +1369,7 @@ export function SmartAmpChips({
             gainRiderDb={gainRiderDb}
             makeupGainDb={makeupGainDb}
             truePeakDb={truePeakDb}
+            bassAuthorityMode={bassAuthorityMode}
           />
         ))}
       </div>

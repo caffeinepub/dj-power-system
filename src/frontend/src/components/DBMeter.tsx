@@ -152,7 +152,7 @@ export function DBMeter({
   return (
     <div
       data-ocid="dbmeter.panel"
-      className={`glass-panel rounded-xl p-6 relative overflow-hidden flex flex-col ${isPlaying ? "glass-panel-active" : ""}`}
+      className={`glass-panel rounded-xl pt-3 pb-6 px-4 relative overflow-hidden flex flex-col ${isPlaying ? "glass-panel-active" : ""}`}
       style={{ minHeight: 400 }}
     >
       {/* Header */}
@@ -215,7 +215,7 @@ export function DBMeter({
         </div>
         <div
           className="font-mono text-[10px] tracking-widest mt-0.5"
-          style={{ color: "oklch(0.4 0.03 240)" }}
+          style={{ color: "oklch(0.72 0.22 145)" }}
         >
           dBFS
         </div>

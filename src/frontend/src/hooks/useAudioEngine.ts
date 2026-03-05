@@ -5,7 +5,7 @@ const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
 // 80,000,000W STABILIZER — FULL POWER — absolute brick-wall, zero clipping, no gains
 // Stabilizer is the ONLY correction — no pre-gain, no amp boosts, no makeup gain
-// Direct clean signal path: source → bassFilter(80Hz) → EQ → stabilizer → analyser
+// Direct clean signal path: source → bassFilter(80Hz) → highpassShelf → EQ → stabilizer → analyser
 const STABILIZER_THRESHOLD_DBFS = -6; // dBFS — catch hot signals early
 const STABILIZER_KNEE = 0; // hard knee — instant brick-wall clamp
 const STABILIZER_RATIO = 100; // 80,000,000W full power brick-wall ratio
@@ -25,6 +25,10 @@ interface UseAudioEngineReturn {
   connectAudioElement: (el: HTMLAudioElement) => void;
   setEqGain: (index: number, gainDb: number) => void;
   setBassGain: (gainDb: number) => void;
+  setBassAuthority: (enabled: boolean) => void;
+  setSmoothMode: (enabled: boolean) => void;
+  bassAuthorityMode: boolean;
+  smoothMode: boolean;
   realDbLevel: number;
   isAnalyserActive: boolean;
   gainReduction: number; // how many dB the SYSTEM stabilizer (80,000,000W) is pulling back
@@ -50,9 +54,24 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const makeupGainRef = useRef<GainNode | null>(null);
   const ampClassGainsRef = useRef<GainNode[]>([]);
   const bassFilterRef = useRef<BiquadFilterNode | null>(null);
+  // Highpass shelf — placed after bassFilter, before EQ chain
+  // In authority mode: active at 200Hz (prevents bass bleed into mids/highs)
+  // In normal mode: bypassed (frequency set to 20Hz — effectively passes everything)
+  const highpassShelfRef = useRef<BiquadFilterNode | null>(null);
+  // Current bass gain value — needed by setBassAuthority to apply gain trim
+  const bassGainValueRef = useRef<number>(0);
   const rafRef = useRef<number | null>(null);
   // Track which elements have already been connected to avoid double-connecting
   const connectedElements = useRef<WeakSet<HTMLAudioElement>>(new WeakSet());
+
+  // Bass Authority mode state
+  const [bassAuthorityMode, setBassAuthorityModeState] = useState(false);
+
+  // SMOOTH MODE state — loud but smooth, no harshness at any volume
+  const [smoothMode, setSmoothModeState] = useState(false);
+  // Smooth mode filter refs — high-shelf cut + mid presence notch
+  const smoothHighShelfRef = useRef<BiquadFilterNode | null>(null);
+  const smoothMidNotchRef = useRef<BiquadFilterNode | null>(null);
 
   const [realDbLevel, setRealDbLevel] = useState(60);
   const [isAnalyserActive, setIsAnalyserActive] = useState(false);
@@ -66,6 +85,8 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const [truePeakDb, setTruePeakDb] = useState(-80);
 
   // rAF loop — reads real signal from AnalyserNode + compressor gain reduction
+  // UI state is throttled to ~15fps (every 66ms) to prevent flicker —
+  // audio computation still runs every frame for accuracy
   const startRafLoop = useCallback(() => {
     const analyser = analyserRef.current;
     if (!analyser) return;
@@ -75,7 +96,12 @@ export function useAudioEngine(): UseAudioEngineReturn {
     // Separate Uint8 array for FFT frequency data (bass detection)
     const freqDataArray = new Uint8Array(analyser.frequencyBinCount);
 
-    const loop = () => {
+    // Titanium-strength throttle: UI updates locked at ~15fps so the screen
+    // never gets overwhelmed no matter how active the bass signal is
+    const UI_UPDATE_INTERVAL_MS = 66; // ~15fps — smooth but rock-solid
+    let lastUiUpdate = 0;
+
+    const loop = (timestamp: number) => {
       if (!analyserRef.current) return;
 
       // --- TIME-DOMAIN data for RMS, peak, crest factor ---
@@ -98,18 +124,12 @@ export function useAudioEngine(): UseAudioEngineReturn {
         ? Math.max(60, Math.min(120, 60 + (dbFs + 80) * (60 / 80)))
         : 60;
 
-      setRealDbLevel(displayDb);
-
       // --- CREST FACTOR: peak / RMS — measures signal dynamics ---
-      // High crest (>6) = music has dynamic range = clean drive
-      // Low crest (<3)  = signal is clipped/forced flat = distortion
       const rawCrest = rms > 0.000001 ? peak / rms : 10;
       const clampedCrest = Math.max(1, Math.min(20, rawCrest));
-      setCrestFactor(clampedCrest);
 
       // --- FREQUENCY-DOMAIN data for bass level (Chip 2) ---
       analyserRef.current.getByteFrequencyData(freqDataArray);
-      // First 12 bins of a 2048-FFT at ~44100Hz cover roughly 0–259Hz (bass range 20–300Hz)
       const BASS_BINS = 12;
       let bassSum = 0;
       for (let i = 0; i < BASS_BINS; i++) {
@@ -117,26 +137,30 @@ export function useAudioEngine(): UseAudioEngineReturn {
       }
       const bassAvg = bassSum / BASS_BINS; // 0–255
       const bassNormalized = Math.min(100, Math.round((bassAvg / 255) * 100));
-      setBassLevel(bassNormalized);
 
-      // Read actual gain reduction from the SYSTEM compressor node (negative dB = clamping)
-      if (compressorRef.current) {
-        // reduction is always 0 or negative; we display as positive "pull-back" amount
-        const reduction = Math.abs(compressorRef.current.reduction);
-        setGainReduction(reduction);
-      }
+      // Read gain reduction values
+      const reduction = compressorRef.current
+        ? Math.abs(compressorRef.current.reduction)
+        : 0;
+      const dbReduction = dbStabCompressorRef.current
+        ? Math.abs(dbStabCompressorRef.current.reduction)
+        : 0;
 
-      // Read actual gain reduction from the dB-METER dedicated compressor node
-      if (dbStabCompressorRef.current) {
-        const dbReduction = Math.abs(dbStabCompressorRef.current.reduction);
-        setDbStabGainReduction(dbReduction);
-      }
-
-      // --- TRUE PEAK: highest instantaneous sample value ---
+      // --- TRUE PEAK ---
       const truePeakDbVal = peak > 0.000001 ? 20 * Math.log10(peak) : -80;
-      setTruePeakDb(truePeakDbVal);
 
-      // NO GAINS — amp class boost removed. Levels always off.
+      // Titanium throttle — only push state to React when enough time has passed
+      // This is the fix for the Command Center flicker: audio runs every frame,
+      // but the UI only redraws ~15 times per second, which the screen handles easily
+      if (timestamp - lastUiUpdate >= UI_UPDATE_INTERVAL_MS) {
+        lastUiUpdate = timestamp;
+        setRealDbLevel(displayDb);
+        setCrestFactor(clampedCrest);
+        setBassLevel(bassNormalized);
+        setGainReduction(reduction);
+        setDbStabGainReduction(dbReduction);
+        setTruePeakDb(truePeakDbVal);
+      }
 
       rafRef.current = requestAnimationFrame(loop);
     };
@@ -188,12 +212,40 @@ export function useAudioEngine(): UseAudioEngineReturn {
         const bassFilter = ctx.createBiquadFilter();
         bassFilter.type = "lowshelf";
         bassFilter.frequency.value = 80;
+        bassFilter.Q.value = 0.7; // default Q — normal mode
         bassFilter.gain.value = 0; // default flat — user controls this manually
         bassFilterRef.current = bassFilter;
+
+        // Highpass shelf — BASS AUTHORITY protection node
+        // Sits between bassFilter and EQ chain
+        // Authority OFF: frequency at 20Hz (bypassed — all bass passes through)
+        // Authority ON:  frequency at 200Hz (blocks bass bleed into mids/highs)
+        const highpassShelf = ctx.createBiquadFilter();
+        highpassShelf.type = "highpass";
+        highpassShelf.frequency.value = 20; // bypassed by default
+        highpassShelf.Q.value = 0.7;
+        highpassShelfRef.current = highpassShelf;
 
         // NO GAINS: no gainRider, no preGain, no ampClassGains, no makeupGain
         // Stabilizer is the ONLY correction in the chain
         ampClassGainsRef.current = [];
+
+        // SMOOTH MODE filters — wired between EQ chain and stabilizer
+        // OFF by default (gain = 0, no coloring)
+        // HIGH SHELF: gentle -2dB roll-off above 6kHz — removes harshness without dulling the highs
+        const smoothHighShelf = ctx.createBiquadFilter();
+        smoothHighShelf.type = "highshelf";
+        smoothHighShelf.frequency.value = 6000;
+        smoothHighShelf.gain.value = 0; // bypassed until smooth mode ON
+        smoothHighShelfRef.current = smoothHighShelf;
+
+        // MID NOTCH: slight -1.5dB dip at 3.2kHz — the "harshness zone" in loud music
+        const smoothMidNotch = ctx.createBiquadFilter();
+        smoothMidNotch.type = "peaking";
+        smoothMidNotch.frequency.value = 3200;
+        smoothMidNotch.Q.value = 1.2;
+        smoothMidNotch.gain.value = 0; // bypassed until smooth mode ON
+        smoothMidNotchRef.current = smoothMidNotch;
 
         // 80,000,000W SYSTEM STABILIZER — DynamicsCompressor as brick-wall limiter
         // Full power over everything — EQ, bass, entire signal chain
@@ -225,19 +277,23 @@ export function useAudioEngine(): UseAudioEngineReturn {
         analyser.smoothingTimeConstant = 0.6;
         analyserRef.current = analyser;
 
-        // CLEAN CHAIN: source → bassFilter(80Hz) → filters[0..9] → compressor(80M stab) → analyser → destination
+        // CLEAN CHAIN: source → bassFilter(80Hz) → highpassShelf → filters[0..9] → smoothHighShelf → smoothMidNotch → compressor(80M stab) → analyser → destination
         // Parallel branch: filters[last] → dbStabSplitter → dbStabCompressor (measurement only)
-        bassFilter.connect(filters[0]);
+        bassFilter.connect(highpassShelf);
+        highpassShelf.connect(filters[0]);
         for (let i = 0; i < filters.length - 1; i++) {
           filters[i].connect(filters[i + 1]);
         }
-        // Main path: last EQ filter → system stabilizer → analyser → destination
-        filters[filters.length - 1].connect(compressor);
+        // Smooth mode filters sit between last EQ filter and stabilizer
+        filters[filters.length - 1].connect(smoothHighShelf);
+        smoothHighShelf.connect(smoothMidNotch);
+        // Main path: smooth notch → system stabilizer → analyser → destination
+        smoothMidNotch.connect(compressor);
         compressor.connect(analyser);
         analyser.connect(ctx.destination);
 
-        // Parallel dB stab monitoring branch
-        filters[filters.length - 1].connect(dbStabSplitter);
+        // Parallel dB stab monitoring branch — taps after smooth mode filters
+        smoothMidNotch.connect(dbStabSplitter);
         dbStabSplitter.connect(dbStabCompressor);
       }
 
@@ -277,8 +333,59 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const setBassGain = useCallback((gainDb: number) => {
     const bf = bassFilterRef.current;
     if (bf) {
-      bf.gain.value = Math.max(-12, Math.min(12, gainDb));
+      const clamped = Math.max(-12, Math.min(12, gainDb));
+      bf.gain.value = clamped;
+      bassGainValueRef.current = clamped;
     }
+  }, []);
+
+  // BASS AUTHORITY MODE — commanded by Master Memory Chip
+  // ON:  wider Q (deep not peaky) + -2dB trim + highpass shelf at 200Hz (no bleed into highs)
+  // OFF: restore normal Q + restore slider gain + bypass highpass shelf (freq → 20Hz)
+  const setBassAuthority = useCallback((enabled: boolean) => {
+    const bf = bassFilterRef.current;
+    const hs = highpassShelfRef.current;
+
+    if (enabled) {
+      if (bf) {
+        bf.Q.value = 0.5; // wider Q — bass sounds deeper, not peaky
+        // Apply -2dB trim so bass sits under the mix (not on top)
+        const trimmedGain = Math.max(-12, bassGainValueRef.current - 2);
+        bf.gain.value = trimmedGain;
+      }
+      if (hs) {
+        hs.frequency.value = 200; // ACTIVE — prevents bass bleed above 200Hz into mids/highs
+        hs.Q.value = 0.7;
+      }
+    } else {
+      if (bf) {
+        bf.Q.value = 0.7; // normal Q — standard response
+        bf.gain.value = bassGainValueRef.current; // restore slider gain
+      }
+      if (hs) {
+        hs.frequency.value = 20; // BYPASSED — all frequencies pass through
+        hs.Q.value = 0.7;
+      }
+    }
+
+    setBassAuthorityModeState(enabled);
+  }, []);
+
+  // SMOOTH MODE — commanded by Master Memory Chip
+  // ON:  high-shelf -2dB above 6kHz + -1.5dB notch at 3.2kHz (harshness zone)
+  //      → loud as hell but smooth at all volumes, no harshness, no sharp edges
+  // OFF: both filters flat (0dB gain) — bypassed
+  const setSmoothMode = useCallback((enabled: boolean) => {
+    const hs = smoothHighShelfRef.current;
+    const mn = smoothMidNotchRef.current;
+    if (enabled) {
+      if (hs) hs.gain.value = -2; // gentle high-shelf roll-off — removes harshness
+      if (mn) mn.gain.value = -1.5; // notch at 3.2kHz — the harshness zone
+    } else {
+      if (hs) hs.gain.value = 0; // bypassed
+      if (mn) mn.gain.value = 0; // bypassed
+    }
+    setSmoothModeState(enabled);
   }, []);
 
   // Cleanup on unmount
@@ -304,6 +411,10 @@ export function useAudioEngine(): UseAudioEngineReturn {
     connectAudioElement,
     setEqGain,
     setBassGain,
+    setBassAuthority,
+    setSmoothMode,
+    bassAuthorityMode,
+    smoothMode,
     realDbLevel,
     isAnalyserActive,
     gainReduction,

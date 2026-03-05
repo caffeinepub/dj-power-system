@@ -12,6 +12,10 @@ export interface MasterMemoryChipProps {
   eqBands: number[]; // 10 values 0-100
   isPlaying: boolean;
   isUnlocked: boolean;
+  bassAuthorityMode: boolean;
+  onBassAuthorityCommand: (enabled: boolean) => void;
+  smoothMode: boolean;
+  onSmoothModeCommand: (enabled: boolean) => void;
 }
 
 // Memory snapshot type stored in localStorage
@@ -28,6 +32,8 @@ interface MemorySnapshot {
   eqBands: number[];
   isPlaying: boolean;
   isUnlocked: boolean;
+  bassAuthorityMode: boolean;
+  smoothMode: boolean;
 }
 
 const LS_MEMORY_KEY = "dj-master-memory-chip";
@@ -35,6 +41,12 @@ const LS_MEMORY_KEY = "dj-master-memory-chip";
 const GREEN = "oklch(0.78 0.22 145)";
 const GREEN_BRIGHT = "oklch(0.88 0.25 145)";
 const GREEN_DIM = "oklch(0.52 0.14 145)";
+const CYAN = "oklch(0.78 0.18 200)";
+const CYAN_BRIGHT = "oklch(0.88 0.2 200)";
+const CYAN_DIM = "oklch(0.45 0.1 200)";
+const GOLD = "oklch(0.82 0.18 85)";
+const GOLD_BRIGHT = "oklch(0.92 0.2 85)";
+const GOLD_DIM = "oklch(0.5 0.1 85)";
 
 export function MasterMemoryChip({
   chargeLevel,
@@ -48,6 +60,10 @@ export function MasterMemoryChip({
   eqBands,
   isPlaying,
   isUnlocked,
+  bassAuthorityMode,
+  onBassAuthorityCommand,
+  smoothMode,
+  onSmoothModeCommand,
 }: MasterMemoryChipProps) {
   // Persist snapshot to localStorage whenever any prop changes
   const snapshotRef = useRef<MemorySnapshot | null>(null);
@@ -66,6 +82,8 @@ export function MasterMemoryChip({
       eqBands,
       isPlaying,
       isUnlocked,
+      bassAuthorityMode,
+      smoothMode,
     };
     snapshotRef.current = snapshot;
     try {
@@ -85,6 +103,8 @@ export function MasterMemoryChip({
     eqBands,
     isPlaying,
     isUnlocked,
+    bassAuthorityMode,
+    smoothMode,
   ]);
 
   // Compute control command for display
@@ -104,6 +124,11 @@ export function MasterMemoryChip({
 
   const dbDisplay = isPlaying ? Math.round(realDbLevel) : "--";
 
+  // Bass Authority status text — freq always 80Hz
+  const bassAuthorityStatusText = bassAuthorityMode
+    ? "AUTHORITY ACTIVE — 80Hz DEEP"
+    : "80Hz NORMAL";
+
   return (
     <div
       data-ocid="memory.chip.panel"
@@ -122,7 +147,7 @@ export function MasterMemoryChip({
         `,
         animation: "chip-heartbeat 3s ease-in-out infinite",
         overflow: "hidden",
-        padding: "6px 12px",
+        padding: "5px 10px",
       }}
     >
       {/* Subtle dot grid overlay */}
@@ -145,7 +170,7 @@ export function MasterMemoryChip({
           zIndex: 2,
           display: "flex",
           alignItems: "center",
-          gap: 14,
+          gap: 10,
           flexWrap: "wrap",
         }}
       >
@@ -154,8 +179,8 @@ export function MasterMemoryChip({
           <div
             className="chip-alive-led"
             style={{
-              width: 7,
-              height: 7,
+              width: 5,
+              height: 5,
               borderRadius: "50%",
               background: GREEN_BRIGHT,
               boxShadow: `0 0 6px ${GREEN_BRIGHT}, 0 0 12px oklch(0.72 0.22 145 / 0.5)`,
@@ -166,7 +191,7 @@ export function MasterMemoryChip({
           <span
             className="font-mono font-black tracking-[0.18em] uppercase"
             style={{
-              fontSize: 10,
+              fontSize: 9,
               color: GREEN_BRIGHT,
               textShadow: "0 0 10px oklch(0.72 0.22 145 / 0.7)",
               whiteSpace: "nowrap",
@@ -197,7 +222,7 @@ export function MasterMemoryChip({
           <span
             className="font-mono font-bold tabular-nums"
             style={{
-              fontSize: 13,
+              fontSize: 11,
               color: cmdColor,
               textShadow: `0 0 8px ${GREEN}`,
               lineHeight: 1,
@@ -228,7 +253,7 @@ export function MasterMemoryChip({
           <span
             className="font-mono font-bold tabular-nums"
             style={{
-              fontSize: 11,
+              fontSize: 9,
               color: GREEN_BRIGHT,
               textShadow: `0 0 6px ${GREEN}`,
               lineHeight: 1,
@@ -297,6 +322,176 @@ export function MasterMemoryChip({
             {isUnlocked ? "UNLOCKED" : "STANDBY"}
           </span>
         </div>
+
+        {/* Divider */}
+        <div
+          style={{
+            width: 1,
+            height: 18,
+            background: "oklch(0.72 0.22 145 / 0.25)",
+            flexShrink: 0,
+          }}
+        />
+
+        {/* Bass Authority Command Toggle */}
+        <button
+          data-ocid="memory.bass_authority.toggle"
+          type="button"
+          onClick={() => onBassAuthorityCommand(!bassAuthorityMode)}
+          className="flex items-center gap-1.5"
+          style={{
+            flexShrink: 0,
+            background: bassAuthorityMode
+              ? "oklch(0.78 0.18 200 / 0.12)"
+              : "transparent",
+            border: `1px solid ${bassAuthorityMode ? `${CYAN}50` : "oklch(0.72 0.22 145 / 0.18)"}`,
+            borderRadius: 4,
+            padding: "2px 6px",
+            cursor: "pointer",
+            transition: "all 0.18s ease",
+            boxShadow: bassAuthorityMode ? `0 0 8px ${CYAN}30` : "none",
+          }}
+        >
+          <span
+            className="font-mono tracking-widest uppercase"
+            style={{
+              fontSize: 8,
+              color: bassAuthorityMode ? CYAN_DIM : GREEN_DIM,
+            }}
+          >
+            BASS AUTH
+          </span>
+          <span
+            className="font-mono font-bold tracking-wider"
+            style={{
+              fontSize: 9,
+              color: bassAuthorityMode ? CYAN_BRIGHT : GREEN_DIM,
+              textShadow: bassAuthorityMode ? `0 0 8px ${CYAN}` : "none",
+              transition: "all 0.18s ease",
+            }}
+          >
+            {bassAuthorityMode ? "ON ●" : "OFF"}
+          </span>
+        </button>
+
+        {/* Bass frequency readout — always 80Hz */}
+        <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+          <span
+            className="font-mono tracking-widest uppercase"
+            style={{
+              fontSize: 8,
+              color: bassAuthorityMode ? CYAN_DIM : GREEN_DIM,
+            }}
+          >
+            FREQ
+          </span>
+          <span
+            className="font-mono font-bold tabular-nums"
+            style={{
+              fontSize: 9,
+              color: bassAuthorityMode ? CYAN_BRIGHT : GREEN_BRIGHT,
+              textShadow: bassAuthorityMode
+                ? `0 0 6px ${CYAN}`
+                : `0 0 6px ${GREEN}`,
+              transition: "all 0.18s ease",
+            }}
+          >
+            80Hz
+          </span>
+        </div>
+
+        {/* Bass authority status text */}
+        <div
+          style={{
+            width: 1,
+            height: 18,
+            background: bassAuthorityMode
+              ? `${CYAN}30`
+              : "oklch(0.72 0.22 145 / 0.25)",
+            flexShrink: 0,
+          }}
+        />
+        <span
+          className="font-mono font-bold tracking-wider"
+          style={{
+            fontSize: 8,
+            color: bassAuthorityMode ? CYAN_BRIGHT : GREEN_DIM,
+            textShadow: bassAuthorityMode ? `0 0 8px ${CYAN}` : "none",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            transition: "all 0.18s ease",
+          }}
+        >
+          {bassAuthorityStatusText}
+        </span>
+
+        {/* Divider */}
+        <div
+          style={{
+            width: 1,
+            height: 18,
+            background: smoothMode
+              ? `${GOLD}30`
+              : "oklch(0.72 0.22 145 / 0.25)",
+            flexShrink: 0,
+          }}
+        />
+
+        {/* SMOOTH MODE Command Toggle */}
+        <button
+          data-ocid="memory.smooth_mode.toggle"
+          type="button"
+          onClick={() => onSmoothModeCommand(!smoothMode)}
+          className="flex items-center gap-1.5"
+          style={{
+            flexShrink: 0,
+            background: smoothMode
+              ? "oklch(0.82 0.18 85 / 0.12)"
+              : "transparent",
+            border: `1px solid ${smoothMode ? `${GOLD}50` : "oklch(0.72 0.22 145 / 0.18)"}`,
+            borderRadius: 4,
+            padding: "2px 6px",
+            cursor: "pointer",
+            transition: "all 0.18s ease",
+            boxShadow: smoothMode ? `0 0 8px ${GOLD}30` : "none",
+          }}
+        >
+          <span
+            className="font-mono tracking-widest uppercase"
+            style={{
+              fontSize: 8,
+              color: smoothMode ? GOLD_DIM : GREEN_DIM,
+            }}
+          >
+            SMOOTH
+          </span>
+          <span
+            className="font-mono font-bold tracking-wider"
+            style={{
+              fontSize: 9,
+              color: smoothMode ? GOLD_BRIGHT : GREEN_DIM,
+              textShadow: smoothMode ? `0 0 8px ${GOLD}` : "none",
+              transition: "all 0.18s ease",
+            }}
+          >
+            {smoothMode ? "ON ●" : "OFF"}
+          </span>
+        </button>
+
+        {/* Smooth mode status text */}
+        <span
+          className="font-mono font-bold tracking-wider"
+          style={{
+            fontSize: 8,
+            color: smoothMode ? GOLD_BRIGHT : GREEN_DIM,
+            textShadow: smoothMode ? `0 0 8px ${GOLD}` : "none",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+            transition: "all 0.18s ease",
+          }}
+        >
+          {smoothMode ? "LOUD & SMOOTH" : "STANDARD"}
+        </span>
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />

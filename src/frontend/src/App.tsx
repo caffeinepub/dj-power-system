@@ -5,8 +5,10 @@ import { ChargerUnit } from "./components/ChargerUnit";
 import { DBMeter, type DbControlCommand } from "./components/DBMeter";
 import { DJEqualizer } from "./components/DJEqualizer";
 import { FilePicker } from "./components/FilePicker";
+import { MagnetMusicChip } from "./components/MagnetMusicChip";
 import { MasterMemoryChip } from "./components/MasterMemoryChip";
 import { SmartAmpChips } from "./components/SmartAmpChips";
+import { SpeakerLab } from "./components/SpeakerLab";
 import { useAudioEngine } from "./hooks/useAudioEngine";
 
 const DEFAULT_EQ_BANDS = [70, 70, 70, 72, 75, 73, 70, 68, 65, 62];
@@ -14,6 +16,8 @@ const LS_CHARGE_KEY = "dj-power-charge-level";
 const LS_EQ_KEY = "dj-power-eq-bands";
 const LS_BASS_GAIN_KEY = "dj-power-bass-gain";
 const LS_MASTER_MEMORY_KEY = "dj-master-memory-chip";
+const LS_BASS_AUTHORITY_KEY = "dj-bass-authority-mode";
+const LS_SMOOTH_MODE_KEY = "dj-smooth-mode";
 
 // Load saved value from localStorage, return fallback if missing/invalid
 function loadFromStorage<T>(
@@ -45,6 +49,10 @@ function isBassGain(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v >= -12 && v <= 12;
 }
 
+function isBoolean(v: unknown): v is boolean {
+  return typeof v === "boolean";
+}
+
 // Map EQ slider 0-100 → gain -12 to +12 dB
 // 50 = 0 dB (neutral), 0 = -12 dB, 100 = +12 dB
 function sliderToGain(value: number): number {
@@ -52,6 +60,9 @@ function sliderToGain(value: number): number {
 }
 
 export default function App() {
+  // Active page state
+  const [activePage, setActivePage] = useState<"dj" | "lab">("dj");
+
   // Global state — hydrated from localStorage on first render
   const [chargeLevel, setChargeLevel] = useState(() =>
     loadFromStorage(LS_CHARGE_KEY, 0, isNumberInRange),
@@ -81,6 +92,10 @@ export default function App() {
     connectAudioElement,
     setEqGain,
     setBassGain,
+    setBassAuthority,
+    setSmoothMode,
+    bassAuthorityMode: engineBassAuthorityMode,
+    smoothMode: engineSmoothMode,
     realDbLevel,
     gainReduction,
     dbStabGainReduction,
@@ -110,6 +125,51 @@ export default function App() {
     localStorage.setItem(LS_BASS_GAIN_KEY, JSON.stringify(bassGain));
   }, [bassGain]);
 
+  // Bass Authority Mode — commanded by Master Memory Chip
+  // Keeps 80Hz fixed but engages authority mode: wider Q, -2dB trim, highpass shelf at 200Hz
+  const [bassAuthorityMode, setBassAuthorityModeState] = useState(() =>
+    loadFromStorage(LS_BASS_AUTHORITY_KEY, false, isBoolean),
+  );
+
+  const handleBassAuthorityCommand = useCallback(
+    (enabled: boolean) => {
+      setBassAuthorityModeState(enabled);
+      setBassAuthority(enabled);
+    },
+    [setBassAuthority],
+  );
+
+  // Persist bassAuthorityMode to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(
+      LS_BASS_AUTHORITY_KEY,
+      JSON.stringify(bassAuthorityMode),
+    );
+  }, [bassAuthorityMode]);
+
+  // Smooth mode state — hydrated from localStorage
+  const [smoothMode, setSmoothModeState] = useState(() =>
+    loadFromStorage(LS_SMOOTH_MODE_KEY, false, isBoolean),
+  );
+
+  const handleSmoothModeCommand = useCallback(
+    (enabled: boolean) => {
+      setSmoothModeState(enabled);
+      setSmoothMode(enabled);
+    },
+    [setSmoothMode],
+  );
+
+  // Persist smoothMode to localStorage
+  useEffect(() => {
+    localStorage.setItem(LS_SMOOTH_MODE_KEY, JSON.stringify(smoothMode));
+  }, [smoothMode]);
+
+  // Keep engine states in sync with persisted state (e.g. on first load)
+  // These are driven by set* calls; refs here for completeness
+  void engineBassAuthorityMode;
+  void engineSmoothMode;
+
   // Persist full system snapshot to master memory chip (never lose memory)
   useEffect(() => {
     const snapshot = {
@@ -119,13 +179,23 @@ export default function App() {
       isUnlocked,
       eqBands,
       bassGain,
+      bassAuthorityMode,
+      smoothMode,
     };
     try {
       localStorage.setItem(LS_MASTER_MEMORY_KEY, JSON.stringify(snapshot));
     } catch {
       // storage full — silent fail
     }
-  }, [chargeLevel, isPlaying, isUnlocked, eqBands, bassGain]);
+  }, [
+    chargeLevel,
+    isPlaying,
+    isUnlocked,
+    eqBands,
+    bassGain,
+    bassAuthorityMode,
+    smoothMode,
+  ]);
 
   // Charging interval
   const chargeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -233,7 +303,7 @@ export default function App() {
 
   return (
     <div
-      className="min-h-screen relative"
+      className="min-h-screen relative overflow-x-hidden"
       style={{
         background: "oklch(0.08 0.008 260)",
         fontFamily: "JetBrains Mono, Geist Mono, monospace",
@@ -241,12 +311,15 @@ export default function App() {
     >
       {/* ===== STUDIO NAMEPLATE ===== */}
       <div
-        className="relative z-20 w-full flex items-center justify-center gap-2"
+        className="relative z-20 w-full flex items-center justify-center gap-2 overflow-hidden"
         style={{
           background:
             "linear-gradient(90deg, oklch(0.06 0.008 260) 0%, oklch(0.09 0.015 240) 50%, oklch(0.06 0.008 260) 100%)",
           borderBottom: "1px solid oklch(0.78 0.18 200 / 0.18)",
-          padding: "6px 16px",
+          paddingTop: "env(safe-area-inset-top, 6px)",
+          paddingBottom: "6px",
+          paddingLeft: "16px",
+          paddingRight: "16px",
         }}
       >
         {/* Left accent line */}
@@ -289,6 +362,8 @@ export default function App() {
             color: "oklch(0.72 0.16 200)",
             textShadow: "0 0 10px oklch(0.78 0.18 200 / 0.35)",
             letterSpacing: "0.22em",
+            flexShrink: 1,
+            minWidth: 0,
           }}
         >
           Engineer&nbsp;&amp;&nbsp;Product Designer
@@ -328,6 +403,71 @@ export default function App() {
         />
       </div>
 
+      {/* ===== PAGE TAB NAV ===== */}
+      <div
+        className="relative z-20 w-full flex items-center justify-center"
+        style={{
+          background: "oklch(0.07 0.008 260)",
+          borderBottom: "1px solid oklch(0.78 0.18 200 / 0.12)",
+          padding: "0 16px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
+          {(
+            [
+              { id: "dj" as const, label: "DJ SYSTEM" },
+              { id: "lab" as const, label: "SPEAKER LAB" },
+            ] as const
+          ).map((tab) => {
+            const isActive = activePage === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                data-ocid={`nav.${tab.id}.tab`}
+                onClick={() => setActivePage(tab.id)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: isActive
+                    ? "2px solid oklch(0.78 0.18 200)"
+                    : "2px solid transparent",
+                  padding: "10px 20px",
+                  cursor: "pointer",
+                  fontFamily: "JetBrains Mono, Geist Mono, monospace",
+                  fontSize: "9px",
+                  fontWeight: isActive ? 700 : 400,
+                  letterSpacing: "0.22em",
+                  textTransform: "uppercase",
+                  color: isActive
+                    ? "oklch(0.88 0.22 200)"
+                    : "oklch(0.42 0.04 240)",
+                  textShadow: isActive
+                    ? "0 0 10px oklch(0.78 0.18 200 / 0.5)"
+                    : "none",
+                  transition:
+                    "color 0.2s ease, border-color 0.2s ease, text-shadow 0.2s ease",
+                  whiteSpace: "nowrap",
+                  outline: "none",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive)
+                    (e.currentTarget as HTMLButtonElement).style.color =
+                      "oklch(0.65 0.1 220)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive)
+                    (e.currentTarget as HTMLButtonElement).style.color =
+                      "oklch(0.42 0.04 240)";
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Background grid pattern */}
       <div
         className="fixed inset-0 pointer-events-none"
@@ -352,22 +492,22 @@ export default function App() {
         }}
       />
 
-      <div className="relative z-10 max-w-[1400px] mx-auto px-4 py-6">
+      <div className="relative z-10 max-w-[1400px] mx-auto px-4 py-4">
         {/* ===== HEADER ===== */}
-        <header className="mb-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="flex items-center gap-3">
+        <header className="mb-4">
+          <div className="flex items-center justify-between gap-2 min-w-0 overflow-hidden">
+            <div className="min-w-0 flex-shrink overflow-hidden">
+              <div className="flex items-center gap-3 min-w-0">
                 {/* Logo / brand icon */}
                 <div
-                  className="relative flex items-center justify-center"
-                  style={{ width: 44, height: 44 }}
+                  className="relative flex items-center justify-center flex-shrink-0"
+                  style={{ width: 32, height: 32 }}
                 >
                   <svg
                     viewBox="0 0 44 44"
                     fill="none"
-                    width="44"
-                    height="44"
+                    width="32"
+                    height="32"
                     aria-hidden="true"
                     role="img"
                   >
@@ -403,7 +543,7 @@ export default function App() {
 
                 <div>
                   <h1
-                    className="font-mono text-xl font-bold tracking-[0.15em] uppercase"
+                    className="font-mono text-sm font-bold tracking-[0.15em] uppercase"
                     style={{
                       color: "oklch(0.88 0.22 200)",
                       textShadow:
@@ -423,7 +563,10 @@ export default function App() {
             </div>
 
             {/* System status indicators */}
-            <div className="flex items-center gap-4">
+            <div
+              className="flex items-center gap-2 flex-wrap justify-end flex-shrink-0"
+              style={{ minWidth: 0, maxWidth: "60%" }}
+            >
               <div className="flex items-center gap-2">
                 <div
                   className="w-2 h-2 rounded-full"
@@ -493,16 +636,10 @@ export default function App() {
                 className="font-mono text-xs font-bold tabular-nums px-3 py-1 rounded"
                 style={{
                   background: "oklch(0.11 0.015 260)",
-                  border: "1px solid oklch(0.22 0.04 240)",
-                  color: isPlaying
-                    ? realDbLevel >= 105
-                      ? "oklch(0.62 0.22 25)"
-                      : realDbLevel >= 90
-                        ? "oklch(0.82 0.2 95)"
-                        : "oklch(0.72 0.22 145)"
-                    : "oklch(0.45 0.03 240)",
+                  border: `1px solid ${isPlaying ? "oklch(0.72 0.22 145 / 0.5)" : "oklch(0.22 0.04 240)"}`,
+                  color: "oklch(0.78 0.22 145)",
                   textShadow: isPlaying
-                    ? "0 0 8px oklch(0.78 0.18 200 / 0.6)"
+                    ? "0 0 8px oklch(0.72 0.22 145 / 0.7), 0 0 16px oklch(0.72 0.22 145 / 0.35)"
                     : "none",
                 }}
               >
@@ -541,92 +678,124 @@ export default function App() {
           />
         </header>
 
-        {/* ===== MAIN GRID LAYOUT ===== */}
-        <main>
-          {/* Row 1: Batteries + Charger + Chainblock */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-4 mb-4">
-            {/* Left: Battery Panel */}
-            <BatteryPanel
-              chargeLevel={chargeLevel}
-              isFullyCharged={isFullyCharged}
-            />
-
-            {/* Center: Charger + Chainblock stack */}
-            <div className="flex flex-col gap-4" style={{ minWidth: 220 }}>
-              <ChargerUnit
-                isCharging={isCharging}
-                isFullyCharged={isFullyCharged}
+        {/* ===== PAGE CONTENT ===== */}
+        {/* DJ page — always mounted so audio never stops; hidden via display:none when on lab */}
+        <div style={{ display: activePage === "dj" ? "block" : "none" }}>
+          {/* ===== MAIN GRID LAYOUT ===== */}
+          <main>
+            {/* Row 1: Batteries + Charger + Chainblock */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-3 mb-3">
+              {/* Left: Battery Panel */}
+              <BatteryPanel
                 chargeLevel={chargeLevel}
-                onToggleCharging={handleToggleCharging}
+                isFullyCharged={isFullyCharged}
               />
-              <Chainblock isUnlocked={isUnlocked} chargeLevel={chargeLevel} />
+
+              {/* Center: Charger + Chainblock stack */}
+              <div className="flex flex-col gap-3" style={{ minWidth: 220 }}>
+                <ChargerUnit
+                  isCharging={isCharging}
+                  isFullyCharged={isFullyCharged}
+                  chargeLevel={chargeLevel}
+                  onToggleCharging={handleToggleCharging}
+                />
+                <Chainblock isUnlocked={isUnlocked} chargeLevel={chargeLevel} />
+              </div>
+
+              {/* Right: SmartAmpChips + FilePicker */}
+              <div className="flex flex-col gap-3">
+                <SmartAmpChips
+                  isUnlocked={isUnlocked}
+                  dbLevel={realDbLevel}
+                  isPlaying={isPlaying}
+                  gainReduction={gainReduction}
+                  dbStabGainReduction={dbStabGainReduction}
+                  ampClassLevels={ampClassLevels}
+                  bassLevel={bassLevel}
+                  crestFactor={crestFactor}
+                  bassGain={bassGain}
+                  onBassGainChange={handleBassGainChange}
+                  gainRiderDb={gainRiderDb}
+                  makeupGainDb={makeupGainDb}
+                  truePeakDb={truePeakDb}
+                  bassAuthorityMode={bassAuthorityMode}
+                />
+                <FilePicker
+                  audioFile={audioFile}
+                  isPlaying={isPlaying}
+                  isUnlocked={isUnlocked}
+                  onFileSelect={handleFileSelect}
+                  onPlayPause={handlePlayPause}
+                  onStop={handleStop}
+                  onAudioElementReady={handleAudioElementReady}
+                />
+              </div>
             </div>
 
-            {/* Right: SmartAmpChips + FilePicker */}
-            <div className="flex flex-col gap-4">
-              <SmartAmpChips
+            {/* Row 2: EQ + DB Meter */}
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3">
+              {/* EQ Panel - full width */}
+              <DJEqualizer
+                eqBands={eqBands}
                 isUnlocked={isUnlocked}
-                dbLevel={realDbLevel}
-                isPlaying={isPlaying}
-                gainReduction={gainReduction}
-                dbStabGainReduction={dbStabGainReduction}
-                ampClassLevels={ampClassLevels}
-                bassLevel={bassLevel}
-                crestFactor={crestFactor}
-                bassGain={bassGain}
-                onBassGainChange={handleBassGainChange}
-                gainRiderDb={gainRiderDb}
-                makeupGainDb={makeupGainDb}
-                truePeakDb={truePeakDb}
+                onBandChange={handleBandChange}
               />
-              <FilePicker
-                audioFile={audioFile}
-                isPlaying={isPlaying}
-                isUnlocked={isUnlocked}
-                onFileSelect={handleFileSelect}
-                onPlayPause={handlePlayPause}
-                onStop={handleStop}
-                onAudioElementReady={handleAudioElementReady}
-              />
-            </div>
-          </div>
 
-          {/* Row 2: EQ + DB Meter */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4">
-            {/* EQ Panel - full width */}
-            <DJEqualizer
+              {/* dB Meter - fixed width */}
+              <div style={{ width: 130 }}>
+                <DBMeter
+                  dbLevel={realDbLevel}
+                  isPlaying={isPlaying}
+                  gainReduction={gainReduction}
+                  dbControlCommand={dbControlCommand}
+                />
+              </div>
+            </div>
+          </main>
+
+          {/* ===== MASTER MEMORY CHIP ===== */}
+          <div className="mt-3">
+            <MasterMemoryChip
+              chargeLevel={chargeLevel}
+              realDbLevel={realDbLevel}
+              truePeakDb={truePeakDb}
+              bassLevel={bassLevel}
+              bassGain={bassGain}
+              crestFactor={crestFactor}
+              gainReduction={gainReduction}
+              dbStabGainReduction={dbStabGainReduction}
               eqBands={eqBands}
+              isPlaying={isPlaying}
               isUnlocked={isUnlocked}
-              onBandChange={handleBandChange}
+              bassAuthorityMode={bassAuthorityMode}
+              onBassAuthorityCommand={handleBassAuthorityCommand}
+              smoothMode={smoothMode}
+              onSmoothModeCommand={handleSmoothModeCommand}
             />
-
-            {/* dB Meter - fixed width */}
-            <div style={{ width: 160 }}>
-              <DBMeter
-                dbLevel={realDbLevel}
-                isPlaying={isPlaying}
-                gainReduction={gainReduction}
-                dbControlCommand={dbControlCommand}
-              />
-            </div>
           </div>
-        </main>
 
-        {/* ===== MASTER MEMORY CHIP ===== */}
-        <div className="mt-6">
-          <MasterMemoryChip
-            chargeLevel={chargeLevel}
-            realDbLevel={realDbLevel}
-            truePeakDb={truePeakDb}
-            bassLevel={bassLevel}
-            bassGain={bassGain}
-            crestFactor={crestFactor}
-            gainReduction={gainReduction}
-            dbStabGainReduction={dbStabGainReduction}
-            eqBands={eqBands}
-            isPlaying={isPlaying}
-            isUnlocked={isUnlocked}
-          />
+          {/* ===== MAGNET MUSIC CHIP ===== */}
+          <div className="mt-3">
+            <MagnetMusicChip
+              realDbLevel={realDbLevel}
+              bassLevel={bassLevel}
+              isPlaying={isPlaying}
+            />
+          </div>
+        </div>
+
+        {/* Speaker lab page — always mounted; hidden when on DJ page */}
+        <div style={{ display: activePage === "lab" ? "block" : "none" }}>
+          <main>
+            <SpeakerLab
+              realDbLevel={realDbLevel}
+              bassLevel={bassLevel}
+              gainReduction={gainReduction}
+              isPlaying={isPlaying}
+              smoothMode={smoothMode}
+              bassAuthorityMode={bassAuthorityMode}
+            />
+          </main>
         </div>
 
         {/* ===== FOOTER ===== */}
