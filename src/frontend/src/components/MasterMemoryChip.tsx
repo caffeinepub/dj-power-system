@@ -107,11 +107,11 @@ export function MasterMemoryChip({
     smoothMode,
   ]);
 
-  // Compute control command for display
+  // Compute control command for display — real dBFS thresholds
   const dbControlCommand =
-    realDbLevel >= 105
+    realDbLevel >= -6
       ? "EMERGENCY CLAMP"
-      : realDbLevel >= 90
+      : realDbLevel >= -18
         ? "PULL BACK"
         : "GREEN HOLD";
 
@@ -122,7 +122,13 @@ export function MasterMemoryChip({
         ? GREEN_BRIGHT
         : GREEN_BRIGHT;
 
-  const dbDisplay = isPlaying ? Math.round(realDbLevel) : "--";
+  const dbRounded = isPlaying ? Math.round(realDbLevel) : null;
+  const dbDisplay =
+    dbRounded !== null
+      ? dbRounded >= 0
+        ? `+${dbRounded}`
+        : `${dbRounded}`
+      : "--";
 
   // Bass Authority status text — freq always 80Hz
   const bassAuthorityStatusText = bassAuthorityMode

@@ -262,6 +262,102 @@ export function BatteryPanel({
         />
       </div>
 
+      {/* Power Delivery Row */}
+      <div
+        className="mt-5 rounded-lg px-4 py-3 flex items-center justify-between gap-3"
+        style={{
+          background: "oklch(0.08 0.015 250)",
+          border: `1px solid ${isFullyCharged ? "oklch(0.78 0.18 200 / 0.35)" : "oklch(0.2 0.03 240)"}`,
+          transition: "border-color 0.4s ease",
+        }}
+      >
+        {/* Left: Ignition power label */}
+        <div className="flex flex-col gap-0.5">
+          <div
+            className="font-mono text-[8px] tracking-widest font-bold"
+            style={{ color: "oklch(0.45 0.04 220)" }}
+          >
+            POWER DELIVERY
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span
+              className="font-mono text-[11px] font-bold tracking-wider"
+              style={{
+                color: isFullyCharged
+                  ? "oklch(0.88 0.22 200)"
+                  : "oklch(0.65 0.2 60)",
+                textShadow: isFullyCharged
+                  ? "0 0 10px oklch(0.78 0.18 200 / 0.7)"
+                  : "0 0 8px oklch(0.65 0.2 60 / 0.5)",
+                transition: "all 0.3s ease",
+              }}
+            >
+              50,000W
+            </span>
+            <span
+              className="font-mono text-[7px] tracking-widest"
+              style={{ color: "oklch(0.38 0.03 240)" }}
+            >
+              IGNITION STARTUP POWER
+            </span>
+          </div>
+          <div
+            className="font-mono text-[7px] tracking-widest"
+            style={{ color: "oklch(0.32 0.03 240)" }}
+          >
+            FIRES THE AMP — ZERO LAG
+          </div>
+        </div>
+
+        {/* Right: Flow status */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {isFullyCharged ? (
+            <div
+              className="font-mono text-[9px] font-bold tracking-wider flex items-center gap-1.5"
+              style={{
+                color: "oklch(0.82 0.22 170)",
+                textShadow: "0 0 10px oklch(0.72 0.22 145 / 0.8)",
+              }}
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: "oklch(0.82 0.22 170)",
+                  boxShadow: "0 0 6px oklch(0.72 0.22 145)",
+                }}
+              />
+              ZERO GAUGE FLOW
+            </div>
+          ) : (
+            <div
+              className="font-mono text-[9px] font-bold tracking-wider flex items-center gap-1.5"
+              style={{ color: "oklch(0.35 0.03 240)" }}
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  border: "1.5px solid oklch(0.35 0.03 240)",
+                  background: "transparent",
+                }}
+              />
+              STANDBY
+            </div>
+          )}
+          <div
+            className="font-mono text-[6px] tracking-widest"
+            style={{ color: "oklch(0.28 0.02 240)" }}
+          >
+            {isFullyCharged ? "UNRESTRICTED" : "AWAITING CHARGE"}
+          </div>
+        </div>
+      </div>
+
       {/* Background ambient glow */}
       {isFullyCharged && (
         <div

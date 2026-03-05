@@ -1,6 +1,6 @@
 interface SmartAmpChipsProps {
   isUnlocked: boolean;
-  dbLevel: number; // real dB from Web Audio (60–120 range)
+  dbLevel: number; // real dBFS from Web Audio (-80 to 0 dBFS)
   isPlaying: boolean;
   gainReduction: number; // dB of SYSTEM stabilizer pull-back (0 = idle, >0 = actively clamping)
   dbStabGainReduction: number; // dB of dB-meter stabilizer pull-back
@@ -13,65 +13,150 @@ interface SmartAmpChipsProps {
   makeupGainDb: number; // fixed +8 dB makeup gain
   truePeakDb: number; // true peak in dBFS
   bassAuthorityMode: boolean; // commanded by Master Memory Chip — 80Hz authority mode (deeper Q, -2dB trim, highpass shelf)
+  clipCount: number; // running count of clipping events (truePeak >= -1 dBFS)
+  distortionPct: number; // 0–100: inverted crest factor — high = distorted/flat signal
+  commanderStatus: string; // live status string from STAB CLIP DIST CMDR
+  gainStageDb: number; // current gain stage push in dB (~+12dB = 4.0 linear)
 }
 
 function getDbColor(db: number): string {
-  if (db >= 115) return "oklch(0.62 0.22 25)"; // red — clip zone
-  if (db >= 95) return "oklch(0.82 0.2 95)"; // yellow — hot
+  if (db >= -6) return "oklch(0.62 0.22 25)"; // red — clip zone (near 0 dBFS)
+  if (db >= -18) return "oklch(0.82 0.2 95)"; // yellow — hot
   return "oklch(0.72 0.22 145)"; // green — safe
 }
 
-// ─── Chip 1: SIGNAL STABILIZER (80,000,000W FULL POWER) ────────────────────
-// The "system pull" side — covers EQ, bass, amp classes, signal booster, soft drive
-function StabilizerDisplay({
+// ─── Chip 1: UNIFIED COMMANDER BLOCK ────────────────────────────────────────
+// ALL 5 UNITS CLAMP DOWN ON GAIN STAGE AS ONE FORCE — no individual boxes, no split
+// GAIN STAGE · STABILIZER · CLIP MONITOR · COMMANDER · DISTORTION PROTECTION
+// Regular: 803,200,000,000W | Super Strength Headroom: 12,800,000,000,000W
+// Both numbers are SHARED by all 5 — nobody owns a separate number
+function UnifiedCommanderBlock({
   isActive,
   gainReduction,
+  clipCount,
+  distortionPct,
 }: {
   isActive: boolean;
+  gainStageDb: number;
   gainReduction: number;
+  clipCount: number;
+  distortionPct: number;
 }) {
   const isClamping = gainReduction > 0.5;
+  const isClipping = isActive && clipCount > 0;
+  const isDistorted = isActive && distortionPct > 60;
+  const allClear = !isClipping && !isDistorted && !isClamping;
   const reductionPct = Math.min(100, (gainReduction / 12) * 100);
+
+  const cmdColor =
+    isClipping || isDistorted
+      ? "oklch(0.65 0.25 30)"
+      : isClamping
+        ? "oklch(0.82 0.2 95)"
+        : "oklch(0.72 0.22 145)";
+
+  const borderGlow = isActive
+    ? isClipping || isDistorted
+      ? "oklch(0.65 0.25 30 / 0.55)"
+      : "oklch(0.78 0.18 200 / 0.5)"
+    : "oklch(0.18 0.02 260)";
+
+  const cmdStatus = !isActive
+    ? "COMMANDER OFFLINE"
+    : isClipping && isDistorted
+      ? "⚡ ALL 5 CLAMPING — CLIP + DISTORTION INTERCEPTED"
+      : isClipping
+        ? "⚡ ALL 5 CLAMPING — CLIPPING INTERCEPTED"
+        : isDistorted
+          ? "⚠ ALL 5 CLAMPING — DISTORTION INTERCEPTED"
+          : isClamping
+            ? "⚡ ALL 5 CLAMPING DOWN ON GAIN STAGE"
+            : "✓ ALL 5 LOCKED — GAIN STAGE CLEAN";
 
   return (
     <div
-      className="rounded p-1.5 flex flex-col gap-1"
+      className="rounded p-2 flex flex-col gap-2"
       style={{
-        background: "oklch(0.07 0.01 260)",
-        border: `1px solid ${isActive ? (isClamping ? "oklch(0.72 0.22 145 / 0.5)" : "oklch(0.78 0.18 200 / 0.3)") : "oklch(0.18 0.02 260)"}`,
+        background: "oklch(0.06 0.015 250)",
+        border: `1px solid ${borderGlow}`,
+        boxShadow: isActive
+          ? "0 0 18px oklch(0.78 0.18 200 / 0.12), inset 0 0 24px oklch(0.78 0.18 200 / 0.03)"
+          : "none",
+        transition: "border-color 0.2s ease, box-shadow 0.2s ease",
       }}
     >
-      {/* Power + status */}
-      <div className="flex items-center justify-between">
+      {/* TWO shared power numbers — owned by ALL 5 together, no individual split */}
+      <div className="flex flex-col gap-0.5">
         <div
-          className="font-mono text-[8px] tracking-[0.2em] font-bold"
+          className="font-mono text-[11px] tracking-[0.15em] font-bold"
           style={{
-            color: isActive ? "oklch(0.78 0.18 200)" : "oklch(0.35 0.02 240)",
+            color: isActive ? "oklch(0.9 0.22 200)" : "oklch(0.38 0.03 240)",
+            textShadow: isActive
+              ? "0 0 14px oklch(0.78 0.18 200 / 0.7)"
+              : "none",
           }}
         >
-          80,000,000W
+          803,200,000,000W
         </div>
         <div
-          className="font-mono text-[8px] tracking-widest font-bold"
+          className="font-mono text-[11px] tracking-[0.15em] font-bold"
           style={{
-            color: isActive
-              ? isClamping
-                ? "oklch(0.72 0.22 145)"
-                : "oklch(0.72 0.22 145 / 0.6)"
-              : "oklch(0.28 0.02 240)",
+            color: isActive ? "oklch(0.88 0.2 85)" : "oklch(0.35 0.03 240)",
+            textShadow: isActive
+              ? "0 0 16px oklch(0.82 0.22 85 / 0.85)"
+              : "none",
           }}
         >
-          {!isActive ? "OFFLINE" : isClamping ? "● CLAMPING" : "● STANDBY"}
+          12,800,000,000,000W
+        </div>
+        <div
+          className="font-mono text-[6px] tracking-widest"
+          style={{
+            color: isActive ? "oklch(0.48 0.1 85)" : "oklch(0.28 0.02 240)",
+          }}
+        >
+          REGULAR STRENGTH · SUPER STRENGTH HEADROOM — SHARED BY ALL 5
         </div>
       </div>
 
-      {/* Gain reduction bar */}
+      {/* 5 unit labels as ONE single line — NO boxes, NO borders, NO individual numbers */}
+      <div
+        className="rounded px-2 py-2"
+        style={{
+          background: "oklch(0.08 0.01 260)",
+          border: `1px solid ${isActive ? "oklch(0.78 0.18 200 / 0.22)" : "oklch(0.18 0.02 260)"}`,
+        }}
+      >
+        <div
+          className="font-mono text-[8px] tracking-[0.12em] font-bold text-center"
+          style={{
+            color: isActive ? "oklch(0.84 0.18 200)" : "oklch(0.35 0.02 240)",
+            textShadow: isActive
+              ? "0 0 8px oklch(0.78 0.18 200 / 0.5)"
+              : "none",
+            lineHeight: 1.6,
+          }}
+        >
+          GAIN STAGE · STABILIZER · CLIP MONITOR · COMMANDER · DISTORTION
+          PROTECTION
+        </div>
+        <div
+          className="font-mono text-[6px] tracking-widest text-center mt-1"
+          style={{
+            color: isActive ? "oklch(0.42 0.08 200)" : "oklch(0.26 0.02 240)",
+          }}
+        >
+          ALL 5 CLAMPING DOWN ON GAIN STAGE AS ONE FORCE
+        </div>
+      </div>
+
+      {/* Clamp force bar */}
       <div>
         <div
           className="font-mono text-[7px] tracking-widest mb-0.5"
           style={{ color: "oklch(0.38 0.03 240)" }}
         >
-          CLIP REDUCTION: {isActive ? gainReduction.toFixed(1) : "--"} dB
+          CLAMP FORCE: {isActive ? gainReduction.toFixed(1) : "--"} dB
         </div>
         <div
           className="rounded-full overflow-hidden"
@@ -97,22 +182,21 @@ function StabilizerDisplay({
         </div>
       </div>
 
-      {/* Zero clip confirmation */}
+      {/* Commander status bar */}
       <div
-        className="font-mono text-[7px] tracking-widest text-center"
+        className="rounded px-2 py-1 font-mono text-[7px] tracking-widest text-center"
         style={{
-          color: isActive
-            ? isClamping
-              ? "oklch(0.72 0.22 145)"
-              : "oklch(0.55 0.15 145)"
-            : "oklch(0.28 0.02 240)",
+          background: isActive
+            ? allClear
+              ? "oklch(0.72 0.22 145 / 0.08)"
+              : "oklch(0.65 0.25 30 / 0.1)"
+            : "oklch(0.1 0.01 260)",
+          border: `1px solid ${isActive ? (allClear ? "oklch(0.72 0.22 145 / 0.25)" : "oklch(0.65 0.25 30 / 0.3)") : "oklch(0.15 0.02 260)"}`,
+          color: isActive ? cmdColor : "oklch(0.28 0.02 240)",
+          transition: "all 0.2s ease",
         }}
       >
-        {isActive
-          ? isClamping
-            ? "⚡ CORRECTING SIGNAL"
-            : "✓ ZERO CLIPPING"
-          : "AWAITING SIGNAL"}
+        {cmdStatus}
       </div>
     </div>
   );
@@ -418,18 +502,18 @@ function DbMonitorDisplay({
         className="font-mono text-[7px] tracking-widest text-center"
         style={{
           color: isActive
-            ? dbLevel >= 115
+            ? dbLevel >= -6
               ? "oklch(0.62 0.22 25)"
-              : dbLevel >= 95
+              : dbLevel >= -18
                 ? "oklch(0.82 0.2 95)"
                 : "oklch(0.72 0.22 145)"
             : "oklch(0.28 0.02 240)",
         }}
       >
         {isActive
-          ? dbLevel >= 115
+          ? dbLevel >= -6
             ? "⚡ HOT ZONE"
-            : dbLevel >= 95
+            : dbLevel >= -18
               ? "● SIGNAL STRONG"
               : "○ SIGNAL NORMAL"
           : "AWAITING SIGNAL"}
@@ -450,73 +534,23 @@ const AMP_CLASS_COLORS = [
 ];
 const AMP_CLASS_LABELS = ["NO GAIN", "NO GAIN", "NO GAIN", "NO GAIN"];
 
-// Mini stabilizer bar — shows gain reduction as a glowing bar
-function StabBar({
-  gainReduction,
-  isActive,
-  color,
-}: {
-  gainReduction: number;
-  isActive: boolean;
-  color: string;
-}) {
-  const isClamping = gainReduction > 0.5;
-  const pct = Math.min(100, (gainReduction / 12) * 100);
-  return (
-    <div
-      className="rounded-full overflow-hidden"
-      style={{
-        height: 4,
-        background: "oklch(0.15 0.02 260)",
-        border: "1px solid oklch(0.22 0.04 240)",
-        flex: 1,
-      }}
-    >
-      <div
-        className="h-full rounded-full"
-        style={{
-          width: isActive ? `${pct}%` : "0%",
-          background: isClamping
-            ? `linear-gradient(to right, ${color}, oklch(0.82 0.2 95))`
-            : `${color}50`,
-          boxShadow: isClamping ? `0 0 5px ${color}80` : "none",
-          transition: "width 0.05s linear, box-shadow 0.1s ease",
-        }}
-      />
-    </div>
-  );
-}
-
 function AdvancedAmpEngineDisplay({
   isActive,
   ampClassLevels,
   gainReduction,
-  dbStabGainReduction,
 }: {
   isActive: boolean;
   ampClassLevels: number[];
   gainReduction: number;
-  dbStabGainReduction: number;
 }) {
   const pullDb = gainReduction;
-
   const sysIsClamping = gainReduction > 0.5;
-  const dbIsClamping = dbStabGainReduction > 0.5;
 
-  // Status logic: "NO GAINS — STAB FULL POWER" when both stabs are idle
-  // "⚡ BOTH STABS ACTIVE" when both clamping
-  // Individual messages otherwise
   let statusText: string;
   let statusColor: string;
   if (!isActive) {
     statusText = "AWAITING SIGNAL";
     statusColor = "oklch(0.28 0.02 240)";
-  } else if (dbIsClamping && sysIsClamping) {
-    statusText = "⚡ BOTH STABS ACTIVE";
-    statusColor = "oklch(0.65 0.25 30)";
-  } else if (dbIsClamping) {
-    statusText = "⚡ dB STAB CLAMPING";
-    statusColor = "oklch(0.82 0.2 95)";
   } else if (sysIsClamping) {
     statusText = "⚡ SYS STAB CLAMPING";
     statusColor = "oklch(0.78 0.18 200)";
@@ -533,81 +567,6 @@ function AdvancedAmpEngineDisplay({
         border: `1px solid ${isActive ? "oklch(0.78 0.18 200 / 0.3)" : "oklch(0.18 0.02 260)"}`,
       }}
     >
-      {/* Two stabilizer rows */}
-      <div className="flex flex-col gap-1">
-        {/* Row 1: dB STAB 80,000,000W */}
-        <div className="flex items-center gap-1.5">
-          <div
-            className="font-mono text-[7px] tracking-widest font-bold shrink-0"
-            style={{
-              color: isActive
-                ? dbIsClamping
-                  ? "oklch(0.82 0.2 95)"
-                  : "oklch(0.78 0.18 200)"
-                : "oklch(0.28 0.02 240)",
-              minWidth: 72,
-            }}
-          >
-            dB STAB
-          </div>
-          <StabBar
-            gainReduction={dbStabGainReduction}
-            isActive={isActive}
-            color="oklch(0.82 0.2 95)"
-          />
-          <div
-            className="font-mono text-[6px] tracking-widest shrink-0"
-            style={{
-              color: isActive
-                ? dbIsClamping
-                  ? "oklch(0.82 0.2 95)"
-                  : "oklch(0.72 0.22 145)"
-                : "oklch(0.28 0.02 240)",
-              minWidth: 48,
-              textAlign: "right",
-            }}
-          >
-            {isActive ? (dbIsClamping ? "CLAMPING" : "STANDBY") : "--"}
-          </div>
-        </div>
-
-        {/* Row 2: SYS STAB 80,000,000W */}
-        <div className="flex items-center gap-1.5">
-          <div
-            className="font-mono text-[7px] tracking-widest font-bold shrink-0"
-            style={{
-              color: isActive
-                ? sysIsClamping
-                  ? "oklch(0.78 0.18 200)"
-                  : "oklch(0.55 0.1 200)"
-                : "oklch(0.28 0.02 240)",
-              minWidth: 72,
-            }}
-          >
-            SYS STAB
-          </div>
-          <StabBar
-            gainReduction={gainReduction}
-            isActive={isActive}
-            color="oklch(0.78 0.18 200)"
-          />
-          <div
-            className="font-mono text-[6px] tracking-widest shrink-0"
-            style={{
-              color: isActive
-                ? sysIsClamping
-                  ? "oklch(0.78 0.18 200)"
-                  : "oklch(0.72 0.22 145)"
-                : "oklch(0.28 0.02 240)",
-              minWidth: 48,
-              textAlign: "right",
-            }}
-          >
-            {isActive ? (sysIsClamping ? "CLAMPING" : "STANDBY") : "--"}
-          </div>
-        </div>
-      </div>
-
       {/* Push / Pull readout row — NO GAINS mode */}
       <div className="flex items-center justify-between gap-1">
         <div
@@ -904,153 +863,228 @@ function SystemHealthDisplay({
   );
 }
 
-// ─── Chip 7: GAINS REMOVED (formerly Gain Rider) ────────────────────────────
-// Gains removed — 80,000,000W stabilizer handles all signal correction
-function GainRiderDisplay({
+// ─── Chip 7: SIGNAL PATH — live signal chain visualization ──────────────────
+// Shows the full signal chain: Gain Stage → Bass → EQ → Stab → Out
+// Each node lights up cyan when the system is active
+const SIGNAL_PATH_NODES = [
+  { key: "gs", label: "GAIN STG" },
+  { key: "bass", label: "BASS" },
+  { key: "eq", label: "EQ" },
+  { key: "stab", label: "STAB" },
+  { key: "out", label: "OUT" },
+] as const;
+
+function SignalPathDisplay({
   isActive,
+  gainStageDb,
+  gainReduction,
 }: {
   isActive: boolean;
-  gainRiderDb: number;
+  gainStageDb: number;
+  gainReduction: number;
 }) {
+  const stabStatus = isActive
+    ? gainReduction > 0.5
+      ? "CLAMPING"
+      : "STANDBY"
+    : "--";
+  const gainSign = gainStageDb >= 0 ? "+" : "";
+
   return (
     <div
-      className="rounded p-1.5 flex flex-col gap-1"
+      className="rounded p-1.5 flex flex-col gap-1.5"
       style={{
         background: "oklch(0.07 0.01 260)",
-        border: `1px solid ${isActive ? "oklch(0.55 0.08 200 / 0.4)" : "oklch(0.18 0.02 260)"}`,
+        border: `1px solid ${isActive ? "oklch(0.78 0.18 200 / 0.35)" : "oklch(0.18 0.02 260)"}`,
+        boxShadow: isActive ? "0 0 8px oklch(0.78 0.18 200 / 0.08)" : "none",
       }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div
-          className="font-mono text-[8px] tracking-[0.2em] font-bold"
-          style={{
-            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.35 0.02 240)",
-          }}
-        >
-          GAINS OFF
-        </div>
-        <div
-          className="font-mono text-[8px] tracking-widest font-bold tabular-nums"
-          style={{
-            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.28 0.02 240)",
-          }}
-        >
-          {isActive ? "0.0 dB" : "--"}
-        </div>
+      {/* Sub-label */}
+      <div
+        className="font-mono text-[7px] tracking-widest"
+        style={{ color: "oklch(0.38 0.03 240)" }}
+      >
+        LIVE SIGNAL CHAIN
       </div>
 
-      {/* Gain bar — always 0% */}
-      <div>
-        <div
-          className="font-mono text-[7px] tracking-widest mb-0.5"
-          style={{ color: "oklch(0.38 0.03 240)" }}
-        >
-          GAIN AMOUNT — REMOVED FROM CHAIN
-        </div>
-        <div
-          className="rounded-full overflow-hidden"
-          style={{
-            height: 4,
-            background: "oklch(0.15 0.02 260)",
-            border: "1px solid oklch(0.22 0.04 240)",
-          }}
-        >
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: "0%",
-              background: "oklch(0.55 0.08 200 / 0.35)",
-              transition: "width 0.05s linear",
-            }}
-          />
-        </div>
+      {/* Node pills row */}
+      <div className="flex items-center gap-0.5">
+        {SIGNAL_PATH_NODES.map((node, i) => {
+          const isLast = i === SIGNAL_PATH_NODES.length - 1;
+          return (
+            <div key={node.key} className="flex items-center gap-0.5 flex-1">
+              <div
+                className="flex-1 flex flex-col items-center gap-0.5 rounded py-0.5 px-0.5"
+                style={{
+                  background: isActive
+                    ? "oklch(0.78 0.18 200 / 0.12)"
+                    : "oklch(0.1 0.01 260)",
+                  border: `1px solid ${isActive ? "oklch(0.78 0.18 200 / 0.4)" : "oklch(0.2 0.03 240)"}`,
+                  boxShadow: isActive
+                    ? "0 0 4px oklch(0.78 0.18 200 / 0.25)"
+                    : "none",
+                  transition: "all 0.2s ease",
+                }}
+              >
+                <div
+                  className="font-mono text-[6px] font-bold tracking-wide text-center"
+                  style={{
+                    color: isActive
+                      ? "oklch(0.88 0.22 200)"
+                      : "oklch(0.3 0.02 240)",
+                  }}
+                >
+                  {node.label}
+                </div>
+                {/* Sub-value for GAIN STG and STAB nodes */}
+                {node.key === "gs" && (
+                  <div
+                    className="font-mono text-[5px] tabular-nums text-center"
+                    style={{
+                      color: isActive
+                        ? "oklch(0.65 0.15 200)"
+                        : "oklch(0.25 0.02 240)",
+                    }}
+                  >
+                    {isActive ? `${gainSign}${gainStageDb.toFixed(0)}dB` : "--"}
+                  </div>
+                )}
+                {node.key === "stab" && (
+                  <div
+                    className="font-mono text-[5px] text-center"
+                    style={{
+                      color: isActive
+                        ? gainReduction > 0.5
+                          ? "oklch(0.82 0.2 95)"
+                          : "oklch(0.55 0.12 145)"
+                        : "oklch(0.25 0.02 240)",
+                    }}
+                  >
+                    {stabStatus}
+                  </div>
+                )}
+              </div>
+              {/* Arrow connector (not after last) */}
+              {!isLast && (
+                <div
+                  className="font-mono text-[7px]"
+                  style={{
+                    color: isActive
+                      ? "oklch(0.55 0.1 200)"
+                      : "oklch(0.25 0.02 240)",
+                    flexShrink: 0,
+                  }}
+                >
+                  →
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* Status */}
+      {/* Status line */}
       <div
         className="font-mono text-[7px] tracking-widest text-center"
         style={{
-          color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.28 0.02 240)",
+          color: isActive ? "oklch(0.78 0.18 200)" : "oklch(0.28 0.02 240)",
         }}
       >
-        {isActive ? "✓ NO GAINS — STABILIZER HANDLES ALL" : "AWAITING SIGNAL"}
+        {isActive ? "✓ CHAIN ACTIVE" : "AWAITING SIGNAL"}
       </div>
     </div>
   );
 }
 
-// ─── Chip 8: MAKEUP GAIN REMOVED (clean signal — no post-stab boost) ─────────
-// Makeup gain removed — signal goes direct after stabilizer, no added gain
-function MakeupGainDisplay({
+// ─── Chip 8: OUTPUT MONITOR — true peak + headroom monitor ──────────────────
+// Shows the real output signal: true peak dBFS, headroom (dB to ceiling), status
+function OutputMonitorDisplay({
   isActive,
+  truePeakDb,
 }: {
   isActive: boolean;
-  makeupGainDb: number;
+  truePeakDb: number;
 }) {
+  const headroom = isActive ? Math.max(0, 0 - truePeakDb) : null;
+
+  const tpColor = !isActive
+    ? "oklch(0.28 0.02 240)"
+    : truePeakDb >= -1
+      ? "oklch(0.62 0.22 25)"
+      : truePeakDb >= -6
+        ? "oklch(0.82 0.2 95)"
+        : "oklch(0.72 0.22 145)";
+
+  const statusText = !isActive
+    ? "AWAITING SIGNAL"
+    : truePeakDb >= -1
+      ? "⚡ CLIP ZONE"
+      : truePeakDb >= -6
+        ? "⚠ HOT SIGNAL"
+        : "✓ HEADROOM OK";
+
+  const statusColor = !isActive
+    ? "oklch(0.28 0.02 240)"
+    : truePeakDb >= -1
+      ? "oklch(0.62 0.22 25)"
+      : truePeakDb >= -6
+        ? "oklch(0.82 0.2 95)"
+        : "oklch(0.72 0.22 145)";
+
   return (
     <div
       className="rounded p-1.5 flex flex-col gap-1"
       style={{
         background: "oklch(0.07 0.01 260)",
-        border: `1px solid ${isActive ? "oklch(0.55 0.08 200 / 0.4)" : "oklch(0.18 0.02 260)"}`,
+        border: `1px solid ${isActive ? `${tpColor}40` : "oklch(0.18 0.02 260)"}`,
+        transition: "border-color 0.2s ease",
       }}
     >
-      {/* Header */}
+      {/* True Peak row */}
       <div className="flex items-center justify-between">
         <div
-          className="font-mono text-[8px] tracking-[0.2em] font-bold"
-          style={{
-            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.35 0.02 240)",
-          }}
+          className="font-mono text-[7px] tracking-widest"
+          style={{ color: "oklch(0.38 0.03 240)" }}
         >
-          MAKEUP OFF
+          TRUE PEAK
         </div>
         <div
-          className="font-mono text-[10px] font-bold tabular-nums"
+          className="font-mono text-[9px] font-bold tabular-nums"
           style={{
-            color: isActive ? "oklch(0.55 0.08 200)" : "oklch(0.28 0.02 240)",
+            color: tpColor,
+            textShadow: isActive ? `0 0 6px ${tpColor}70` : "none",
           }}
         >
-          {isActive ? "0 dB" : "--"}
+          {isActive
+            ? `${truePeakDb >= 0 ? "+" : ""}${truePeakDb.toFixed(1)} dBFS`
+            : "--"}
         </div>
       </div>
 
-      {/* Fixed makeup bar — always 0% */}
-      <div>
+      {/* Headroom row */}
+      <div className="flex items-center justify-between">
         <div
-          className="font-mono text-[7px] tracking-widest mb-0.5"
+          className="font-mono text-[7px] tracking-widest"
           style={{ color: "oklch(0.38 0.03 240)" }}
         >
-          MAKEUP GAIN — REMOVED FROM CHAIN
+          HEADROOM
         </div>
         <div
-          className="rounded-full overflow-hidden"
+          className="font-mono text-[9px] font-bold tabular-nums"
           style={{
-            height: 4,
-            background: "oklch(0.15 0.02 260)",
-            border: "1px solid oklch(0.22 0.04 240)",
+            color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.28 0.02 240)",
           }}
         >
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: "0%",
-              background: "oklch(0.55 0.08 200 / 0.35)",
-              transition: "width 0.3s ease",
-            }}
-          />
+          {headroom !== null ? `${headroom.toFixed(1)} dB` : "--"}
         </div>
       </div>
 
       {/* Status */}
       <div
         className="font-mono text-[7px] tracking-widest text-center"
-        style={{
-          color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.28 0.02 240)",
-        }}
+        style={{ color: statusColor, transition: "color 0.2s ease" }}
       >
-        {isActive ? "✓ NO MAKEUP GAIN — CLEAN SIGNAL" : "AWAITING SIGNAL"}
+        {statusText}
       </div>
     </div>
   );
@@ -1076,6 +1110,10 @@ function ChipCard({
   makeupGainDb,
   truePeakDb,
   bassAuthorityMode,
+  clipCount,
+  distortionPct,
+  commanderStatus,
+  gainStageDb,
 }: {
   chipId: number;
   chipName: string;
@@ -1095,9 +1133,18 @@ function ChipCard({
   makeupGainDb: number;
   truePeakDb: number;
   bassAuthorityMode: boolean;
+  clipCount: number;
+  distortionPct: number;
+  commanderStatus: string;
+  gainStageDb: number;
 }) {
   const isActive = isUnlocked && isPlaying;
   const color = getDbColor(dbLevel);
+  // Props kept for interface compat but not used in current chip renders
+  void gainRiderDb;
+  void makeupGainDb;
+  void dbStabGainReduction;
+  void commanderStatus;
 
   return (
     <div
@@ -1155,7 +1202,13 @@ function ChipCard({
 
       {/* Unique inner display per chip */}
       {chipId === 1 && (
-        <StabilizerDisplay isActive={isActive} gainReduction={gainReduction} />
+        <UnifiedCommanderBlock
+          isActive={isActive}
+          gainStageDb={gainStageDb}
+          gainReduction={gainReduction}
+          clipCount={clipCount}
+          distortionPct={distortionPct}
+        />
       )}
       {chipId === 2 && (
         <BassDisplay
@@ -1178,7 +1231,6 @@ function ChipCard({
           isActive={isActive}
           ampClassLevels={ampClassLevels}
           gainReduction={gainReduction}
-          dbStabGainReduction={dbStabGainReduction}
         />
       )}
       {chipId === 5 && (
@@ -1192,10 +1244,14 @@ function ChipCard({
         />
       )}
       {chipId === 7 && (
-        <GainRiderDisplay isActive={isActive} gainRiderDb={gainRiderDb} />
+        <SignalPathDisplay
+          isActive={isActive}
+          gainStageDb={gainStageDb}
+          gainReduction={gainReduction}
+        />
       )}
       {chipId === 8 && (
-        <MakeupGainDisplay isActive={isActive} makeupGainDb={makeupGainDb} />
+        <OutputMonitorDisplay isActive={isActive} truePeakDb={truePeakDb} />
       )}
 
       {/* Description */}
@@ -1226,9 +1282,9 @@ function ChipCard({
 const CHIPS = [
   {
     id: 1,
-    name: "SIGNAL STABILIZER",
+    name: "GAIN STAGE · STAB · CLIP · CMD · DIST",
     description:
-      "80,000,000W FULL POWER — NO GAINS, SYS limiter over everything",
+      "803,200,000,000W regular + 12,800,000,000,000W super strength — ALL 5 CLAMPING AS ONE",
   },
   {
     id: 2,
@@ -1244,7 +1300,7 @@ const CHIPS = [
   {
     id: 4,
     name: "ADVANCED AMP ENGINE",
-    description: "2x 80,000,000W STABS — NO GAINS, STAB HANDLES ALL",
+    description: "NO GAINS — STAB FULL POWER — system chain confirmed active",
   },
   {
     id: 5,
@@ -1258,13 +1314,14 @@ const CHIPS = [
   },
   {
     id: 7,
-    name: "GAIN RIDER",
-    description: "GAINS REMOVED — 80,000,000W stab handles all correction",
+    name: "SIGNAL PATH",
+    description:
+      "Live signal chain: Gain Stage → Bass → EQ → Stabilizer → Output",
   },
   {
     id: 8,
-    name: "MAKEUP GAIN",
-    description: "MAKEUP GAIN REMOVED — signal goes direct",
+    name: "OUTPUT MONITOR",
+    description: "True peak + headroom monitor — real output signal readout",
   },
 ] as const;
 
@@ -1284,6 +1341,10 @@ export function SmartAmpChips({
   makeupGainDb,
   truePeakDb,
   bassAuthorityMode,
+  clipCount,
+  distortionPct,
+  commanderStatus,
+  gainStageDb,
 }: SmartAmpChipsProps) {
   const activeCount = isUnlocked ? 8 : 0;
 
@@ -1347,30 +1408,35 @@ export function SmartAmpChips({
         </div>
       </div>
 
-      {/* Chips grid — 2 columns x 4 rows */}
+      {/* Chips grid — 2 columns; Unified Commander Block spans full width */}
       <div className="grid grid-cols-2 gap-1.5">
         {CHIPS.map((chip, idx) => (
-          <ChipCard
-            key={chip.id}
-            chipId={chip.id}
-            chipName={chip.name}
-            chipDescription={chip.description}
-            isUnlocked={isUnlocked}
-            dbLevel={dbLevel}
-            isPlaying={isPlaying}
-            index={idx}
-            gainReduction={gainReduction}
-            dbStabGainReduction={dbStabGainReduction}
-            ampClassLevels={ampClassLevels}
-            bassLevel={bassLevel}
-            crestFactor={crestFactor}
-            bassGain={bassGain}
-            onBassGainChange={onBassGainChange}
-            gainRiderDb={gainRiderDb}
-            makeupGainDb={makeupGainDb}
-            truePeakDb={truePeakDb}
-            bassAuthorityMode={bassAuthorityMode}
-          />
+          <div key={chip.id} className={chip.id === 1 ? "col-span-2" : ""}>
+            <ChipCard
+              chipId={chip.id}
+              chipName={chip.name}
+              chipDescription={chip.description}
+              isUnlocked={isUnlocked}
+              dbLevel={dbLevel}
+              isPlaying={isPlaying}
+              index={idx}
+              gainReduction={gainReduction}
+              dbStabGainReduction={dbStabGainReduction}
+              ampClassLevels={ampClassLevels}
+              bassLevel={bassLevel}
+              crestFactor={crestFactor}
+              bassGain={bassGain}
+              onBassGainChange={onBassGainChange}
+              gainRiderDb={gainRiderDb}
+              makeupGainDb={makeupGainDb}
+              truePeakDb={truePeakDb}
+              bassAuthorityMode={bassAuthorityMode}
+              clipCount={clipCount}
+              distortionPct={distortionPct}
+              commanderStatus={commanderStatus}
+              gainStageDb={gainStageDb}
+            />
+          </div>
         ))}
       </div>
 

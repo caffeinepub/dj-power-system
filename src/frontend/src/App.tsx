@@ -105,6 +105,10 @@ export default function App() {
     gainRiderDb,
     makeupGainDb,
     truePeakDb,
+    clipCount,
+    distortionPct,
+    commanderStatus,
+    gainStageDb,
   } = useAudioEngine();
 
   // 80Hz bass gain state (-12 to +12 dB) — hydrated from localStorage
@@ -286,10 +290,11 @@ export default function App() {
   );
 
   // Master Memory Chip control command — signals DBMeter to stay green
+  // Now using real dBFS thresholds: -6 dBFS = near clip, -18 dBFS = hot
   const dbControlCommand: DbControlCommand =
-    realDbLevel >= 105
+    realDbLevel >= -6
       ? "emergency-clamp"
-      : realDbLevel >= 90
+      : realDbLevel >= -18
         ? "pull-back"
         : "green-hold";
 
@@ -631,19 +636,41 @@ export default function App() {
                 </span>
               </div>
 
-              {/* Live dB readout in header */}
+              {/* Live dB readout in header — shows power (0–120 scale) + raw dBFS */}
               <div
-                className="font-mono text-xs font-bold tabular-nums px-3 py-1 rounded"
+                className="flex flex-col items-center px-3 py-1 rounded"
                 style={{
                   background: "oklch(0.11 0.015 260)",
                   border: `1px solid ${isPlaying ? "oklch(0.72 0.22 145 / 0.5)" : "oklch(0.22 0.04 240)"}`,
-                  color: "oklch(0.78 0.22 145)",
-                  textShadow: isPlaying
-                    ? "0 0 8px oklch(0.72 0.22 145 / 0.7), 0 0 16px oklch(0.72 0.22 145 / 0.35)"
-                    : "none",
                 }}
               >
-                {isPlaying ? `${Math.round(realDbLevel)} dBFS` : "-- dBFS"}
+                <span
+                  className="font-mono text-xs font-bold tabular-nums"
+                  style={{
+                    color: "oklch(0.78 0.22 145)",
+                    textShadow: isPlaying
+                      ? "0 0 8px oklch(0.72 0.22 145 / 0.7), 0 0 16px oklch(0.72 0.22 145 / 0.35)"
+                      : "none",
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {isPlaying
+                    ? `${Math.min(120, Math.max(0, Math.round(((realDbLevel + 80) / 80) * 120)))} PWR`
+                    : "-- PWR"}
+                </span>
+                <span
+                  className="font-mono tabular-nums"
+                  style={{
+                    fontSize: "8px",
+                    color: "oklch(0.42 0.05 220)",
+                    lineHeight: 1.2,
+                    marginTop: 1,
+                  }}
+                >
+                  {isPlaying
+                    ? `${Math.round(realDbLevel) >= 0 ? "+" : ""}${Math.round(realDbLevel)} dBFS`
+                    : "-- dBFS"}
+                </span>
               </div>
 
               {/* Charge % in header */}
@@ -719,6 +746,10 @@ export default function App() {
                   makeupGainDb={makeupGainDb}
                   truePeakDb={truePeakDb}
                   bassAuthorityMode={bassAuthorityMode}
+                  clipCount={clipCount}
+                  distortionPct={distortionPct}
+                  commanderStatus={commanderStatus}
+                  gainStageDb={gainStageDb}
                 />
                 <FilePicker
                   audioFile={audioFile}

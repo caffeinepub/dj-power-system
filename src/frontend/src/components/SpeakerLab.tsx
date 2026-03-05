@@ -38,8 +38,8 @@ function getStatus(
   isPlaying: boolean,
 ): StatusType {
   if (!isPlaying) return "CLEAR";
-  if (realDbLevel >= 115) return "CLIPPING";
-  if (gainReduction > 10 && realDbLevel > 108) return "DISTORTED";
+  if (realDbLevel >= -3) return "CLIPPING";
+  if (gainReduction > 10 && realDbLevel > -6) return "DISTORTED";
   if (bassLevel > 65) return "DEEP BASS";
   return "CLEAR";
 }
@@ -77,7 +77,7 @@ function getVerdict(
 ): HandleVerdict {
   if (!isPlaying) return "YES — CLEAN";
   if (speakerType !== "party") return "YES — CLEAN"; // Devialet speakers handle anything
-  if (realDbLevel > 105) return "STRAIN";
+  if (realDbLevel > -9) return "STRAIN";
   return "MODERATE";
 }
 
@@ -94,7 +94,8 @@ function getVerdictColor(verdict: HandleVerdict): string {
 
 function getHealthBarPct(realDbLevel: number, isPlaying: boolean): number {
   if (!isPlaying) return 0;
-  return Math.max(0, Math.min(100, ((realDbLevel - 60) / 60) * 100));
+  // Map real dBFS (-80 to 0) → 0–100% health bar
+  return Math.max(0, Math.min(100, ((realDbLevel + 80) / 80) * 100));
 }
 
 // ────────────────────────────────────────────────────────────
@@ -115,7 +116,7 @@ function PhantomBlackWoofer({
 }: PhantomBlackWooferProps) {
   const active = isPlaying && bassLevel > 50;
   const pushAmount = active ? Math.min((bassLevel - 50) / 50, 1) : 0;
-  const dbFactor = isPlaying ? Math.min((realDbLevel - 60) / 60, 1) : 0;
+  const dbFactor = isPlaying ? Math.min((realDbLevel + 80) / 80, 1) : 0;
   const translateX = pushAmount * 18;
   const scale = 1 + pushAmount * 0.22;
   const glowIntensity = 5 + dbFactor * 16;
@@ -184,7 +185,7 @@ function OnnPartyOverlay({
   accentColor,
 }: OnnPartyOverlayProps) {
   const active = isPlaying;
-  const signalFactor = active ? Math.min((realDbLevel - 60) / 60, 1) : 0;
+  const signalFactor = active ? Math.min((realDbLevel + 80) / 80, 1) : 0;
   const bassFactor = active ? Math.min(bassLevel / 100, 1) : 0;
 
   // Dynamic LED ring glow
@@ -251,7 +252,7 @@ interface ManiaOverlayProps {
 
 function ManiaOverlay({ realDbLevel, isPlaying }: ManiaOverlayProps) {
   const active = isPlaying;
-  const dbFactor = active ? Math.min((realDbLevel - 60) / 60, 1) : 0;
+  const dbFactor = active ? Math.min((realDbLevel + 80) / 80, 1) : 0;
 
   const arcOpacity = 0.08 + dbFactor * 0.3;
   const arcBlur = 3 + dbFactor * 8;
@@ -597,7 +598,9 @@ function SpeakerCard({
             transition: "color 0.3s, text-shadow 0.3s",
           }}
         >
-          {isPlaying ? `${Math.round(realDbLevel)} dBFS` : "-- dBFS"}
+          {isPlaying
+            ? `${Math.round(realDbLevel) >= 0 ? "+" : ""}${Math.round(realDbLevel)} dBFS`
+            : "-- dBFS"}
         </span>
       </div>
 
@@ -865,11 +868,11 @@ function NowPlayingPanel({
   if (!isPlaying) return null;
 
   const dbColor =
-    realDbLevel >= 115
+    realDbLevel >= -3
       ? "oklch(0.62 0.22 25)"
-      : realDbLevel >= 105
+      : realDbLevel >= -6
         ? "oklch(0.72 0.18 55)"
-        : realDbLevel >= 90
+        : realDbLevel >= -18
           ? "oklch(0.82 0.22 45)"
           : "oklch(0.78 0.22 145)";
 
@@ -932,7 +935,9 @@ function NowPlayingPanel({
             transition: "color 0.15s, text-shadow 0.15s",
           }}
         >
-          {Math.round(realDbLevel)}
+          {Math.round(realDbLevel) >= 0
+            ? `+${Math.round(realDbLevel)}`
+            : Math.round(realDbLevel)}
         </span>
         <span
           style={{

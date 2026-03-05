@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 export interface MagnetMusicChipProps {
-  realDbLevel: number; // 60–120 dB display scale
+  realDbLevel: number; // real dBFS (-80 to 0)
   bassLevel: number; // 0–100 bass energy
   isPlaying: boolean;
 }
@@ -33,9 +33,10 @@ export function MagnetMusicChip({
   }, [realDbLevel]);
 
   const selectedFeet = ROOM_CONFIG[roomSize].feet;
+  // Map real dBFS (-80 to 0) → 0–100% field strength
   const fieldStrength = Math.min(
     100,
-    Math.max(0, ((realDbLevel - 60) / 60) * 100),
+    Math.max(0, ((realDbLevel + 80) / 80) * 100),
   );
   const rangeInFeet = Math.round((selectedFeet * fieldStrength) / 100);
   const isFullImmersion = rangeInFeet >= selectedFeet && isPlaying;
@@ -44,9 +45,9 @@ export function MagnetMusicChip({
     ? "OFFLINE"
     : isFullImmersion
       ? "FULL IMMERSION"
-      : realDbLevel > 90
+      : realDbLevel > -18
         ? "EXPANDING"
-        : realDbLevel >= 75
+        : realDbLevel >= -30
           ? "HOLDING"
           : "CONTRACTING";
 

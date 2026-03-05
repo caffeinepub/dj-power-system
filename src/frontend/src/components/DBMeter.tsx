@@ -9,14 +9,14 @@ interface DBMeterProps {
   dbControlCommand?: DbControlCommand;
 }
 
-const DB_MIN = 60;
-const DB_MAX = 120;
+const DB_MIN = -80;
+const DB_MAX = 0;
 const DB_RANGE = DB_MAX - DB_MIN;
 
 function getSegmentColor(db: number, controlled: boolean): string {
   if (controlled) return "oklch(0.72 0.22 145)"; // always green when chip commands it
-  if (db >= 105) return "oklch(0.62 0.22 25)"; // red — clip zone
-  if (db >= 90) return "oklch(0.82 0.2 95)"; // yellow — hot
+  if (db >= -6) return "oklch(0.62 0.22 25)"; // red — clip zone (near 0 dBFS)
+  if (db >= -18) return "oklch(0.82 0.2 95)"; // yellow — hot
   return "oklch(0.72 0.22 145)"; // green — safe
 }
 
@@ -111,6 +111,12 @@ export function DBMeter({
   const displayDb = Math.round(dbLevel);
   const peakDb = Math.round(peakDisplay);
 
+  // Power number: map raw dBFS (-80 to 0) → 0–120 display scale
+  // -80 dBFS = 0 PWR, 0 dBFS = 120 PWR
+  const displayPower = isPlaying
+    ? Math.min(120, Math.max(0, Math.round(((dbLevel + 80) / 80) * 120)))
+    : null;
+
   // Chip is commanding the dB box to stay green
   const isControlled =
     isPlaying &&
@@ -119,23 +125,29 @@ export function DBMeter({
 
   const dbColor = isControlled
     ? "oklch(0.72 0.22 145)"
-    : displayDb >= 105
+    : displayDb >= -6
       ? "oklch(0.62 0.22 25)"
-      : displayDb >= 90
+      : displayDb >= -18
         ? "oklch(0.82 0.2 95)"
         : "oklch(0.72 0.22 145)";
 
   // Slightly offset second channel for stereo feel
   const dbLevelR = Math.max(DB_MIN, dbLevel - 1.5);
+  // Format dBFS with sign for display
+  const dbFsLabel = isPlaying
+    ? displayDb >= 0
+      ? `+${displayDb}`
+      : `${displayDb}`
+    : "--";
 
   // Zone label text — chip can override to show SAFE — CTRL
   const zoneLabel = !isPlaying
     ? "● STANDBY"
     : isControlled
       ? "● SAFE — CTRL"
-      : displayDb >= 105
+      : displayDb >= -6
         ? "⚠ CLIP ZONE"
-        : displayDb >= 90
+        : displayDb >= -18
           ? "● HOT"
           : "● SAFE";
 
@@ -143,9 +155,9 @@ export function DBMeter({
     ? "oklch(0.55 0.15 145)"
     : !isPlaying
       ? "oklch(0.35 0.02 240)"
-      : displayDb >= 105
+      : displayDb >= -6
         ? "oklch(0.72 0.22 25)"
-        : displayDb >= 90
+        : displayDb >= -18
           ? "oklch(0.82 0.2 95)"
           : "oklch(0.55 0.15 145)";
 
@@ -197,8 +209,9 @@ export function DBMeter({
           className="font-mono text-[8px] tracking-[0.25em] uppercase mb-1"
           style={{ color: "oklch(0.4 0.06 180)" }}
         >
-          TRUE SIGNAL
+          SYS POWER
         </div>
+        {/* Main readout: power number (0–120 scale) */}
         <div
           data-ocid="dbmeter.chart_point"
           className={`font-mono text-3xl font-bold tracking-widest ${isPlaying ? "animate-db-flicker" : ""}`}
@@ -211,13 +224,20 @@ export function DBMeter({
             lineHeight: 1,
           }}
         >
-          {isPlaying ? displayDb : "--"}
+          {displayPower !== null ? displayPower : "--"}
         </div>
         <div
           className="font-mono text-[10px] tracking-widest mt-0.5"
           style={{ color: "oklch(0.72 0.22 145)" }}
         >
-          dBFS
+          PWR
+        </div>
+        {/* Sub-label: raw dBFS — honest signal level */}
+        <div
+          className="font-mono text-[8px] tracking-widest mt-1 tabular-nums"
+          style={{ color: "oklch(0.38 0.04 220)" }}
+        >
+          {isPlaying ? `${dbFsLabel} dBFS` : "-- dBFS"}
         </div>
 
         {/* CTRL override indicator */}
@@ -241,16 +261,16 @@ export function DBMeter({
           className="flex flex-col justify-between py-0.5"
           style={{ minWidth: 32 }}
         >
-          {[120, 110, 100, 90, 80, 70, 60].map((db) => (
+          {[0, -12, -24, -36, -48, -60, -80].map((db) => (
             <div
               key={db}
               className="font-mono text-[9px] text-right"
               style={{
                 color: isControlled
                   ? "oklch(0.55 0.05 145 / 0.7)"
-                  : db >= 100
+                  : db >= -6
                     ? "oklch(0.62 0.22 25 / 0.7)"
-                    : db >= 85
+                    : db >= -18
                       ? "oklch(0.82 0.2 95 / 0.7)"
                       : "oklch(0.55 0.05 220 / 0.7)",
               }}
@@ -326,9 +346,9 @@ export function DBMeter({
                 : "oklch(0.35 0.02 240)",
             }}
           >
-            {isPlaying ? peakDb : "--"}
+            {isPlaying ? (peakDb >= 0 ? `+${peakDb}` : `${peakDb}`) : "--"}
           </span>{" "}
-          dB
+          dBFS
         </div>
 
         {/* Zone indicator */}
