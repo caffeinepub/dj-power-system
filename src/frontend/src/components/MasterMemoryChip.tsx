@@ -107,20 +107,17 @@ export function MasterMemoryChip({
     smoothMode,
   ]);
 
-  // Compute control command for display — real dBFS thresholds
+  // Compute control command for display — Commander commands green by default
+  // Only escalates if signal is genuinely escaping past -3dBFS
   const dbControlCommand =
-    realDbLevel >= -6
-      ? "EMERGENCY CLAMP"
-      : realDbLevel >= -18
-        ? "PULL BACK"
-        : "GREEN HOLD";
+    realDbLevel >= -3
+      ? "EMERGENCY"
+      : realDbLevel >= -12
+        ? "STAB ACTIVE"
+        : "GREEN LOCKED";
 
-  const cmdColor =
-    dbControlCommand === "EMERGENCY CLAMP"
-      ? GREEN_BRIGHT // still show green — we're commanding green
-      : dbControlCommand === "PULL BACK"
-        ? GREEN_BRIGHT
-        : GREEN_BRIGHT;
+  // Always show green — the Commander commands green regardless of state
+  const cmdColor = GREEN_BRIGHT;
 
   const dbRounded = isPlaying ? Math.round(realDbLevel) : null;
   const dbDisplay =
@@ -203,7 +200,7 @@ export function MasterMemoryChip({
               whiteSpace: "nowrap",
             }}
           >
-            CTRL CENTER — DB LOCKED GREEN
+            COMMANDER — DB LOCKED GREEN
           </span>
         </div>
 

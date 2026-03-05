@@ -6,14 +6,15 @@ const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 // GAIN STAGE COMMANDER BLOCK — 800,000,000W gain stage sits at the top of the chain
 // Pushes the signal up hard before the stabilizer catches peaks
 // Chain: source → gainStage(800MW) → bassFilter(80Hz) → highpassShelf → EQ → smoothFilters → stabilizer → analyser
-const GAIN_STAGE_LINEAR = 25.0; // ~+27.9dB — wide open, all 5 units clamping down, let it hit hard
+const GAIN_STAGE_LINEAR = 20.0; // ~+26dB — full power push, titanium stabilizer clamps all peaks
 
-// 80,000,000W STABILIZER — FULL POWER — absolute brick-wall catches peaks from gain stage
-const STABILIZER_THRESHOLD_DBFS = -6; // dBFS — catch hot signals early
-const STABILIZER_KNEE = 0; // hard knee — instant brick-wall clamp
-const STABILIZER_RATIO = 100; // 80,000,000W full power brick-wall ratio
+// 803,200,000,000W STABILIZER — FULL TITANIUM POWER — brick-wall limiter, engages hard and fast
+// Commander orders: keep signal green at ALL times, intercept every peak before it clips
+const STABILIZER_THRESHOLD_DBFS = -6; // engages at -6dBFS — wide coverage, catches everything
+const STABILIZER_KNEE = 0; // hard knee — instant brick-wall clamp, no soft edges
+const STABILIZER_RATIO = 100; // 100:1 — titanium full power, nothing gets past
 const STABILIZER_ATTACK = 0.0001; // 0.1ms — fastest possible clamp
-const STABILIZER_RELEASE = 0.08; // 80ms — quick but musical release
+const STABILIZER_RELEASE = 0.08; // 80ms — quick release keeps signal moving
 
 interface UseAudioEngineReturn {
   audioContextRef: React.MutableRefObject<AudioContext | null>;
@@ -196,15 +197,18 @@ export function useAudioEngine(): UseAudioEngineReturn {
             : Math.max(0, prevClips - 1);
           const hasClip = clipping > 0;
           const hasDist = distPct >= 30;
+          const isClamping = reduction > 0.5;
           let status: string;
           if (hasClip && hasDist) {
-            status = "⚡ CLIP + DISTORTION ACTIVE";
+            status = "⚡ ALL 5 CLAMPING — CLIP + DISTORTION INTERCEPTED";
           } else if (hasClip) {
-            status = "⚡ CLIPPING DETECTED";
+            status = "⚡ ALL 5 CLAMPING — CLIP INTERCEPTED";
           } else if (hasDist) {
-            status = "⚠ DISTORTION DETECTED";
+            status = "⚠ ALL 5 CLAMPING — DISTORTION INTERCEPTED";
+          } else if (isClamping) {
+            status = "⚡ STAB CLAMPING — SIGNAL GREEN";
           } else {
-            status = "CLIP CLEAR · DISTORTION CLEAR · SIGNAL CLEAN";
+            status = "✓ COMMANDER: STAB COMMANDED GREEN";
           }
           setCommanderStatus(status);
           return clipping;
@@ -486,6 +490,6 @@ export function useAudioEngine(): UseAudioEngineReturn {
     clipCount,
     distortionPct,
     commanderStatus,
-    gainStageDb: 20 * Math.log10(GAIN_STAGE_LINEAR), // ~+12.04dB
+    gainStageDb: 20 * Math.log10(GAIN_STAGE_LINEAR), // ~+26dB — full titanium push
   };
 }

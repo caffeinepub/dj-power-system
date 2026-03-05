@@ -45,20 +45,20 @@ function UnifiedCommanderBlock({
   const isClamping = gainReduction > 0.5;
   const isClipping = isActive && clipCount > 0;
   const isDistorted = isActive && distortionPct > 60;
-  const allClear = !isClipping && !isDistorted && !isClamping;
-  const reductionPct = Math.min(100, (gainReduction / 12) * 100);
+  // Scale clamp force over 20dB range (100:1 titanium ratio covers full 20dB)
+  const reductionPct = Math.min(100, (gainReduction / 20) * 100);
+  // Clip monitor power bar — ALWAYS full power when active and clear (100%), fires red only on real clip
+  const clipPowerPct = isActive ? 100 : 0;
 
   const cmdColor =
     isClipping || isDistorted
-      ? "oklch(0.65 0.25 30)"
-      : isClamping
-        ? "oklch(0.82 0.2 95)"
-        : "oklch(0.72 0.22 145)";
+      ? "oklch(0.65 0.25 30)" // red — real problem
+      : "oklch(0.88 0.22 200)"; // cyan — Commander is strong, always commanding
 
   const borderGlow = isActive
     ? isClipping || isDistorted
       ? "oklch(0.65 0.25 30 / 0.55)"
-      : "oklch(0.78 0.18 200 / 0.5)"
+      : "oklch(0.78 0.18 200 / 0.7)" // strong cyan border — Commander at full power
     : "oklch(0.18 0.02 260)";
 
   const cmdStatus = !isActive
@@ -66,12 +66,12 @@ function UnifiedCommanderBlock({
     : isClipping && isDistorted
       ? "⚡ ALL 5 CLAMPING — CLIP + DISTORTION INTERCEPTED"
       : isClipping
-        ? "⚡ ALL 5 CLAMPING — CLIPPING INTERCEPTED"
+        ? "⚡ ALL 5 CLAMPING — CLIP INTERCEPTED"
         : isDistorted
           ? "⚠ ALL 5 CLAMPING — DISTORTION INTERCEPTED"
           : isClamping
-            ? "⚡ ALL 5 CLAMPING DOWN ON GAIN STAGE"
-            : "✓ ALL 5 LOCKED — GAIN STAGE CLEAN";
+            ? "⚡ COMMANDER FULL POWER — STAB COMMANDED GREEN"
+            : "✓ COMMANDER STRONG — ALL SYSTEMS GREEN";
 
   return (
     <div
@@ -80,7 +80,9 @@ function UnifiedCommanderBlock({
         background: "oklch(0.06 0.015 250)",
         border: `1px solid ${borderGlow}`,
         boxShadow: isActive
-          ? "0 0 18px oklch(0.78 0.18 200 / 0.12), inset 0 0 24px oklch(0.78 0.18 200 / 0.03)"
+          ? isClipping || isDistorted
+            ? "0 0 18px oklch(0.65 0.25 30 / 0.35)"
+            : "0 0 24px oklch(0.78 0.18 200 / 0.35), inset 0 0 32px oklch(0.78 0.18 200 / 0.08)"
           : "none",
         transition: "border-color 0.2s ease, box-shadow 0.2s ease",
       }}
@@ -90,9 +92,9 @@ function UnifiedCommanderBlock({
         <div
           className="font-mono text-[11px] tracking-[0.15em] font-bold"
           style={{
-            color: isActive ? "oklch(0.9 0.22 200)" : "oklch(0.38 0.03 240)",
+            color: isActive ? "oklch(0.95 0.25 200)" : "oklch(0.38 0.03 240)",
             textShadow: isActive
-              ? "0 0 14px oklch(0.78 0.18 200 / 0.7)"
+              ? "0 0 20px oklch(0.78 0.18 200 / 0.9)"
               : "none",
           }}
         >
@@ -101,9 +103,9 @@ function UnifiedCommanderBlock({
         <div
           className="font-mono text-[11px] tracking-[0.15em] font-bold"
           style={{
-            color: isActive ? "oklch(0.88 0.2 85)" : "oklch(0.35 0.03 240)",
+            color: isActive ? "oklch(0.95 0.22 85)" : "oklch(0.35 0.03 240)",
             textShadow: isActive
-              ? "0 0 16px oklch(0.82 0.22 85 / 0.85)"
+              ? "0 0 22px oklch(0.82 0.22 85 / 1.0)"
               : "none",
           }}
         >
@@ -143,25 +145,40 @@ function UnifiedCommanderBlock({
         <div
           className="font-mono text-[6px] tracking-widest text-center mt-1"
           style={{
-            color: isActive ? "oklch(0.42 0.08 200)" : "oklch(0.26 0.02 240)",
+            color: isActive ? "oklch(0.55 0.12 200)" : "oklch(0.26 0.02 240)",
+            textShadow: isActive
+              ? "0 0 6px oklch(0.78 0.18 200 / 0.4)"
+              : "none",
           }}
         >
-          ALL 5 CLAMPING DOWN ON GAIN STAGE AS ONE FORCE
+          ALL 5 AT FULL POWER — CLAMPING AS ONE FORCE
         </div>
       </div>
 
-      {/* Clamp force bar */}
+      {/* STABILIZER full power bar */}
       <div>
-        <div
-          className="font-mono text-[7px] tracking-widest mb-0.5"
-          style={{ color: "oklch(0.38 0.03 240)" }}
-        >
-          CLAMP FORCE: {isActive ? gainReduction.toFixed(1) : "--"} dB
+        <div className="flex justify-between items-center mb-0.5">
+          <div
+            className="font-mono text-[7px] tracking-widest"
+            style={{
+              color: isActive ? "oklch(0.55 0.12 145)" : "oklch(0.38 0.03 240)",
+            }}
+          >
+            STABILIZER FULL POWER
+          </div>
+          <div
+            className="font-mono text-[7px] font-bold tabular-nums"
+            style={{
+              color: isActive ? "oklch(0.72 0.22 145)" : "oklch(0.28 0.02 240)",
+            }}
+          >
+            {isActive ? `${gainReduction.toFixed(1)} dB` : "--"}
+          </div>
         </div>
         <div
           className="rounded-full overflow-hidden"
           style={{
-            height: 4,
+            height: 5,
             background: "oklch(0.15 0.02 260)",
             border: "1px solid oklch(0.22 0.04 240)",
           }}
@@ -171,12 +188,71 @@ function UnifiedCommanderBlock({
             style={{
               width: isActive ? `${reductionPct}%` : "0%",
               background: isClamping
-                ? "linear-gradient(to right, oklch(0.72 0.22 145), oklch(0.82 0.2 95))"
-                : "oklch(0.72 0.22 145 / 0.4)",
+                ? "linear-gradient(to right, oklch(0.72 0.22 145), oklch(0.88 0.22 200))"
+                : "oklch(0.72 0.22 145 / 0.3)",
               boxShadow: isClamping
-                ? "0 0 6px oklch(0.72 0.22 145 / 0.8)"
+                ? "0 0 10px oklch(0.72 0.22 145 / 0.9)"
                 : "none",
               transition: "width 0.05s linear, box-shadow 0.1s ease",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* CLIP MONITOR full power bar */}
+      <div>
+        <div className="flex justify-between items-center mb-0.5">
+          <div
+            className="font-mono text-[7px] tracking-widest"
+            style={{
+              color: isActive
+                ? isClipping
+                  ? "oklch(0.65 0.25 30)"
+                  : "oklch(0.72 0.22 145)"
+                : "oklch(0.38 0.03 240)",
+            }}
+          >
+            CLIP MONITOR FULL POWER
+          </div>
+          <div
+            className="font-mono text-[7px] font-bold"
+            style={{
+              color: isActive
+                ? isClipping
+                  ? "oklch(0.65 0.25 30)"
+                  : "oklch(0.72 0.22 145)"
+                : "oklch(0.28 0.02 240)",
+            }}
+          >
+            {isActive
+              ? isClipping
+                ? "⚡ INTERCEPTING"
+                : "✓ FULL POWER GREEN"
+              : "--"}
+          </div>
+        </div>
+        <div
+          className="rounded-full overflow-hidden"
+          style={{
+            height: 5,
+            background: "oklch(0.15 0.02 260)",
+            border: `1px solid ${isActive ? (isClipping ? "oklch(0.65 0.25 30 / 0.4)" : "oklch(0.72 0.22 145 / 0.35)") : "oklch(0.22 0.04 240)"}`,
+          }}
+        >
+          <div
+            className="h-full rounded-full"
+            style={{
+              width: isActive ? `${clipPowerPct}%` : "0%",
+              background: isClipping
+                ? "linear-gradient(to right, oklch(0.82 0.2 95), oklch(0.65 0.25 30))"
+                : "linear-gradient(to right, oklch(0.55 0.2 145), oklch(0.72 0.22 145), oklch(0.88 0.22 145))",
+              boxShadow: isActive
+                ? isClipping
+                  ? "0 0 10px oklch(0.65 0.25 30 / 0.8)"
+                  : "0 0 12px oklch(0.72 0.22 145 / 0.85)"
+                : "none",
+              transition:
+                "width 0.05s linear, background 0.15s ease, box-shadow 0.1s ease",
             }}
           />
         </div>
@@ -187,11 +263,17 @@ function UnifiedCommanderBlock({
         className="rounded px-2 py-1 font-mono text-[7px] tracking-widest text-center"
         style={{
           background: isActive
-            ? allClear
-              ? "oklch(0.72 0.22 145 / 0.08)"
-              : "oklch(0.65 0.25 30 / 0.1)"
+            ? isClipping || isDistorted
+              ? "oklch(0.65 0.25 30 / 0.1)"
+              : "oklch(0.78 0.18 200 / 0.15)" // strong cyan — Commander commanding
             : "oklch(0.1 0.01 260)",
-          border: `1px solid ${isActive ? (allClear ? "oklch(0.72 0.22 145 / 0.25)" : "oklch(0.65 0.25 30 / 0.3)") : "oklch(0.15 0.02 260)"}`,
+          border: `1px solid ${
+            isActive
+              ? isClipping || isDistorted
+                ? "oklch(0.65 0.25 30 / 0.3)"
+                : "oklch(0.78 0.18 200 / 0.6)" // strong cyan border
+              : "oklch(0.15 0.02 260)"
+          }`,
           color: isActive ? cmdColor : "oklch(0.28 0.02 240)",
           transition: "all 0.2s ease",
         }}
@@ -246,7 +328,7 @@ function BassDisplay({
   onBassGainChange: (gainDb: number) => void;
   bassAuthorityMode: boolean;
 }) {
-  const isHot = bassLevel >= 80;
+  const isHot = bassLevel >= 90; // only red at true overdrive (was 80)
   const bassColor = isHot
     ? "oklch(0.65 0.25 30)"
     : bassAuthorityMode
@@ -759,8 +841,8 @@ function SystemHealthDisplay({
   gainReduction: number;
   crestFactor: number;
 }) {
-  // NO GAINS mode: AMP is healthy if the stabilizer chain is confirmed active (gainReduction is readable)
-  const ampOk = isActive && gainReduction >= 0; // stabilizer chain confirmed active — no gains needed
+  // NO GAINS mode: AMP is always healthy when playing — no gain stages to fail
+  const ampOk = isActive; // NO GAINS — amp is always healthy when active
   const stabOk = isActive && gainReduction < 20; // titanium stabilizer — wider tolerance
   const driveOk = isActive && crestFactor >= 1.5; // allow more compressed signals
 
@@ -1282,9 +1364,9 @@ function ChipCard({
 const CHIPS = [
   {
     id: 1,
-    name: "GAIN STAGE · STAB · CLIP · CMD · DIST",
+    name: "COMMANDER BLOCK",
     description:
-      "803,200,000,000W regular + 12,800,000,000,000W super strength — ALL 5 CLAMPING AS ONE",
+      "FULL POWER — 803,200,000,000W + 12,800,000,000,000W super strength · STAB 100:1 · CLIP MONITOR LIVE",
   },
   {
     id: 2,

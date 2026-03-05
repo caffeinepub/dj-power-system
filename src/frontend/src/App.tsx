@@ -289,12 +289,13 @@ export default function App() {
     [setEqGain],
   );
 
-  // Master Memory Chip control command — signals DBMeter to stay green
-  // Now using real dBFS thresholds: -6 dBFS = near clip, -18 dBFS = hot
+  // Commander controls dbControlCommand — almost always "green-hold" while playing
+  // The Commander commands the stabilizer to keep signal green at all times
+  // Only escalates if the signal is genuinely escaping past -3dBFS
   const dbControlCommand: DbControlCommand =
-    realDbLevel >= -6
+    realDbLevel >= -3
       ? "emergency-clamp"
-      : realDbLevel >= -18
+      : realDbLevel >= -12
         ? "pull-back"
         : "green-hold";
 

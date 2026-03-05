@@ -117,10 +117,11 @@ export function DBMeter({
     ? Math.min(120, Math.max(0, Math.round(((dbLevel + 80) / 80) * 120)))
     : null;
 
-  // Chip is commanding the dB box to stay green
+  // Commander is actively managing the signal — meter stays green whenever playing
   const isControlled =
     isPlaying &&
-    (dbControlCommand === "pull-back" ||
+    (dbControlCommand === "green-hold" ||
+      dbControlCommand === "pull-back" ||
       dbControlCommand === "emergency-clamp");
 
   const dbColor = isControlled
@@ -249,7 +250,7 @@ export function DBMeter({
               textShadow: "0 0 8px oklch(0.72 0.22 145 / 0.7)",
             }}
           >
-            CTRL: GREEN HOLD
+            CMDR: GREEN LOCKED
           </div>
         )}
       </div>
