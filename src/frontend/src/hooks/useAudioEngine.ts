@@ -3,18 +3,33 @@ import type React from "react";
 
 const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
-// GAIN STAGE COMMANDER BLOCK — 800,000,000W gain stage sits at the top of the chain
-// Pushes the signal up hard before the stabilizer catches peaks
-// Chain: source → gainStage(800MW) → bassFilter(80Hz) → highpassShelf → EQ → smoothFilters → stabilizer → analyser
-const GAIN_STAGE_LINEAR = 20.0; // ~+26dB — full power push, titanium stabilizer clamps all peaks
+// ═══════════════════════════════════════════════════════════════════════════════
+// GAIN STAGE — clean level push, no watts assigned — just turned up hard
+// The 4-unit clamping block (Stabilizer, Clip Monitor, Commander, Distortion)
+// all clamp down together as one force — nothing escapes to the ceiling
+// Chain: source → gainStage → bassFilter(80Hz) → highpassShelf → EQ → smoothFilters
+//        → STAGE1_COMPRESSOR (soft knee catch) → STAGE2_LIMITER (brick-wall)
+//        → analyser → destination
+// ═══════════════════════════════════════════════════════════════════════════════
+const GAIN_STAGE_LINEAR = 12.0; // +21.6dB — pushed hard, clamping block absorbs everything
 
-// 803,200,000,000W STABILIZER — FULL TITANIUM POWER — brick-wall limiter, engages hard and fast
-// Commander orders: keep signal green at ALL times, intercept every peak before it clips
-const STABILIZER_THRESHOLD_DBFS = -6; // engages at -6dBFS — wide coverage, catches everything
-const STABILIZER_KNEE = 0; // hard knee — instant brick-wall clamp, no soft edges
-const STABILIZER_RATIO = 100; // 100:1 — titanium full power, nothing gets past
-const STABILIZER_ATTACK = 0.0001; // 0.1ms — fastest possible clamp
-const STABILIZER_RELEASE = 0.08; // 80ms — quick release keeps signal moving
+// STAGE 1 — PRIMARY COMPRESSOR (Stabilizer + Clip Monitor + Commander)
+// Catches the bulk of peaks early, before they reach the hard limiter
+// Wide coverage — engages at -14dBFS so the signal never even gets close to clipping
+const STAB_THRESHOLD = -14; // -14dBFS — wide catch zone, always engaged on loud signal
+const STAB_KNEE = 3; // soft knee — smooth transition, no harsh clamp artifacts
+const STAB_RATIO = 20; // 20:1 — powerful catch, not so hard it kills dynamics
+const STAB_ATTACK = 0.001; // 1ms — fast, catches transients
+const STAB_RELEASE = 0.15; // 150ms — smooth release, no pumping
+
+// STAGE 2 — BRICK-WALL LIMITER (Distortion Protection + Final Commander)
+// Absolute ceiling — NOTHING gets past 0dBFS. Ever.
+// This is the final guardian. If Stage 1 misses anything, Stage 2 catches it.
+const LIMITER_THRESHOLD = -1; // -1dBFS — ceiling just below 0, absolute hard wall
+const LIMITER_KNEE = 0; // hard knee — instant response, no soft edges
+const LIMITER_RATIO = 100; // 100:1 — brick wall, true limiting
+const LIMITER_ATTACK = 0.0001; // 0.1ms — fastest possible, catches every peak
+const LIMITER_RELEASE = 0.05; // 50ms — fast release so signal breathes after peaks
 
 interface UseAudioEngineReturn {
   audioContextRef: React.MutableRefObject<AudioContext | null>;
@@ -54,6 +69,8 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const filtersRef = useRef<BiquadFilterNode[]>([]);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
+  // Stage 2 — brick-wall limiter: the final guardian before destination
+  const brickWallLimiterRef = useRef<DynamicsCompressorNode | null>(null);
   // Second stabilizer — dedicated to dB meter signal path (parallel, not in playback chain)
   const dbStabCompressorRef = useRef<DynamicsCompressorNode | null>(null);
   // GAIN STAGE — 800,000,000W — entry point of chain, pushes dBFS up before stabilizer
@@ -305,53 +322,71 @@ export function useAudioEngine(): UseAudioEngineReturn {
         smoothMidNotch.gain.value = 0; // bypassed until smooth mode ON
         smoothMidNotchRef.current = smoothMidNotch;
 
-        // 80,000,000W SYSTEM STABILIZER — DynamicsCompressor as brick-wall limiter
-        // Full power over everything — EQ, bass, entire signal chain
+        // ── STAGE 1: PRIMARY COMPRESSOR (Stabilizer · Clip Monitor · Commander) ──
+        // Catches the bulk of peaks before they reach the brick-wall limiter
+        // Engages at -14dBFS with 20:1 ratio — smooth, powerful, no harsh artifacts
         const compressor = ctx.createDynamicsCompressor();
-        compressor.threshold.value = STABILIZER_THRESHOLD_DBFS;
-        compressor.knee.value = STABILIZER_KNEE;
-        compressor.ratio.value = STABILIZER_RATIO;
-        compressor.attack.value = STABILIZER_ATTACK;
-        compressor.release.value = STABILIZER_RELEASE;
+        compressor.threshold.value = STAB_THRESHOLD;
+        compressor.knee.value = STAB_KNEE;
+        compressor.ratio.value = STAB_RATIO;
+        compressor.attack.value = STAB_ATTACK;
+        compressor.release.value = STAB_RELEASE;
         compressorRef.current = compressor;
 
-        // 80,000,000W dB METER STABILIZER — Second compressor dedicated to dB meter signal path
-        // Wired in parallel (NOT in playback chain) — only for reading .reduction property
+        // ── STAGE 2: BRICK-WALL LIMITER (Distortion Protection · Final Commander) ──
+        // Absolute hard ceiling at -1dBFS — NOTHING gets past. Zero clipping. Zero distortion.
+        // If Stage 1 misses a peak, Stage 2 catches it. The signal NEVER hits 0dBFS.
+        const brickWallLimiter = ctx.createDynamicsCompressor();
+        brickWallLimiter.threshold.value = LIMITER_THRESHOLD;
+        brickWallLimiter.knee.value = LIMITER_KNEE;
+        brickWallLimiter.ratio.value = LIMITER_RATIO;
+        brickWallLimiter.attack.value = LIMITER_ATTACK;
+        brickWallLimiter.release.value = LIMITER_RELEASE;
+        brickWallLimiterRef.current = brickWallLimiter;
+
+        // dB METER STABILIZER — parallel compressor for monitoring .reduction only
+        // NOT in playback chain — wired in parallel for display readings
         const dbStabCompressor = ctx.createDynamicsCompressor();
-        dbStabCompressor.threshold.value = STABILIZER_THRESHOLD_DBFS;
-        dbStabCompressor.knee.value = STABILIZER_KNEE;
-        dbStabCompressor.ratio.value = STABILIZER_RATIO;
-        dbStabCompressor.attack.value = STABILIZER_ATTACK;
-        dbStabCompressor.release.value = STABILIZER_RELEASE;
+        dbStabCompressor.threshold.value = STAB_THRESHOLD;
+        dbStabCompressor.knee.value = STAB_KNEE;
+        dbStabCompressor.ratio.value = STAB_RATIO;
+        dbStabCompressor.attack.value = STAB_ATTACK;
+        dbStabCompressor.release.value = STAB_RELEASE;
         dbStabCompressorRef.current = dbStabCompressor;
 
-        // Parallel splitter gain node — taps post-EQ signal and feeds the dB stab monitor
+        // Parallel splitter gain node — taps post-smooth signal, feeds the dB stab monitor
         const dbStabSplitter = ctx.createGain();
-        dbStabSplitter.gain.value = 1; // passthrough — no level change
+        dbStabSplitter.gain.value = 1; // passthrough
 
-        // Create analyser — reads the stabilizer output directly (no makeup gain)
+        // Create analyser — reads AFTER the brick-wall limiter (true clean output)
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0.6;
+        analyser.smoothingTimeConstant = 0.5; // slightly faster response for accurate readings
         analyserRef.current = analyser;
 
-        // FULL CHAIN: source → gainStage(800MW) → bassFilter(80Hz) → highpassShelf → filters[0..9] → smoothHighShelf → smoothMidNotch → compressor(80M stab) → analyser → destination
-        // Parallel branch: filters[last] → dbStabSplitter → dbStabCompressor (measurement only)
+        // ── FULL 2-STAGE CHAIN ──
+        // source → gainStage → bassFilter(80Hz) → highpassShelf → EQ[0..9]
+        //        → smoothHighShelf → smoothMidNotch
+        //        → STAGE1 compressor (-14dBFS, 20:1, soft knee)
+        //        → STAGE2 brick-wall (-1dBFS, 100:1, hard knee)
+        //        → analyser → destination
+        // Parallel: smoothMidNotch → dbStabSplitter → dbStabCompressor (monitoring)
         gainStage.connect(bassFilter);
         bassFilter.connect(highpassShelf);
         highpassShelf.connect(filters[0]);
         for (let i = 0; i < filters.length - 1; i++) {
           filters[i].connect(filters[i + 1]);
         }
-        // Smooth mode filters sit between last EQ filter and stabilizer
+        // Smooth mode filters between last EQ and Stage 1 compressor
         filters[filters.length - 1].connect(smoothHighShelf);
         smoothHighShelf.connect(smoothMidNotch);
-        // Main path: smooth notch → system stabilizer → analyser → destination
+        // Stage 1 → Stage 2 → analyser → speakers
         smoothMidNotch.connect(compressor);
-        compressor.connect(analyser);
+        compressor.connect(brickWallLimiter);
+        brickWallLimiter.connect(analyser);
         analyser.connect(ctx.destination);
 
-        // Parallel dB stab monitoring branch — taps after smooth mode filters
+        // Parallel dB stab monitoring branch (taps after smooth, before limiting)
         smoothMidNotch.connect(dbStabSplitter);
         dbStabSplitter.connect(dbStabCompressor);
       }
@@ -490,6 +525,6 @@ export function useAudioEngine(): UseAudioEngineReturn {
     clipCount,
     distortionPct,
     commanderStatus,
-    gainStageDb: 20 * Math.log10(GAIN_STAGE_LINEAR), // ~+26dB — full titanium push
+    gainStageDb: 20 * Math.log10(GAIN_STAGE_LINEAR), // ~+21.6dB — pushed hard, 2-stage clamping block absorbs all peaks
   };
 }

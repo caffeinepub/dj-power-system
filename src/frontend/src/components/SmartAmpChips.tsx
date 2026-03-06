@@ -26,10 +26,11 @@ function getDbColor(db: number): string {
 }
 
 // ─── Chip 1: UNIFIED COMMANDER BLOCK ────────────────────────────────────────
-// ALL 5 UNITS CLAMP DOWN ON GAIN STAGE AS ONE FORCE — no individual boxes, no split
-// GAIN STAGE · STABILIZER · CLIP MONITOR · COMMANDER · DISTORTION PROTECTION
+// ALL 4 UNITS CLAMP DOWN ON GAIN STAGE AS ONE FORCE — no individual boxes, no split
+// STABILIZER · CLIP MONITOR · COMMANDER · DISTORTION PROTECTION
 // Regular: 803,200,000,000W | Super Strength Headroom: 12,800,000,000,000W
-// Both numbers are SHARED by all 5 — nobody owns a separate number
+// Both numbers are SHARED by all 4 — nobody owns a separate number
+// Gain Stage is separate — just turned up clean, these 4 correct it
 function UnifiedCommanderBlock({
   isActive,
   gainReduction,
@@ -64,14 +65,14 @@ function UnifiedCommanderBlock({
   const cmdStatus = !isActive
     ? "COMMANDER OFFLINE"
     : isClipping && isDistorted
-      ? "⚡ ALL 5 CLAMPING — CLIP + DISTORTION INTERCEPTED"
+      ? "⚡ STAGE 1 + STAGE 2 BOTH CLAMPING — SIGNAL HELD"
       : isClipping
-        ? "⚡ ALL 5 CLAMPING — CLIP INTERCEPTED"
+        ? "⚡ BRICK-WALL ACTIVE — CLIP CAUGHT BEFORE OUTPUT"
         : isDistorted
-          ? "⚠ ALL 5 CLAMPING — DISTORTION INTERCEPTED"
+          ? "⚡ COMPRESSOR CLAMPING — DISTORTION CLEARED"
           : isClamping
-            ? "⚡ COMMANDER FULL POWER — STAB COMMANDED GREEN"
-            : "✓ COMMANDER STRONG — ALL SYSTEMS GREEN";
+            ? "⚡ STAGE 1 CLAMPING — SIGNAL GREEN · STAGE 2 READY"
+            : "✓ COMMANDER: BOTH STAGES ARMED · ALL GREEN";
 
   return (
     <div
@@ -87,29 +88,18 @@ function UnifiedCommanderBlock({
         transition: "border-color 0.2s ease, box-shadow 0.2s ease",
       }}
     >
-      {/* TWO shared power numbers — owned by ALL 5 together, no individual split */}
+      {/* ONE combined power number — all 5 units together, no split */}
       <div className="flex flex-col gap-0.5">
         <div
           className="font-mono text-[11px] tracking-[0.15em] font-bold"
           style={{
-            color: isActive ? "oklch(0.95 0.25 200)" : "oklch(0.38 0.03 240)",
+            color: isActive ? "oklch(0.95 0.25 85)" : "oklch(0.38 0.03 240)",
             textShadow: isActive
-              ? "0 0 20px oklch(0.78 0.18 200 / 0.9)"
+              ? "0 0 22px oklch(0.82 0.22 85 / 1.0), 0 0 12px oklch(0.78 0.18 200 / 0.6)"
               : "none",
           }}
         >
-          803,200,000,000W
-        </div>
-        <div
-          className="font-mono text-[11px] tracking-[0.15em] font-bold"
-          style={{
-            color: isActive ? "oklch(0.95 0.22 85)" : "oklch(0.35 0.03 240)",
-            textShadow: isActive
-              ? "0 0 22px oklch(0.82 0.22 85 / 1.0)"
-              : "none",
-          }}
-        >
-          12,800,000,000,000W
+          13,603,200,000,000W
         </div>
         <div
           className="font-mono text-[6px] tracking-widest"
@@ -117,7 +107,7 @@ function UnifiedCommanderBlock({
             color: isActive ? "oklch(0.48 0.1 85)" : "oklch(0.28 0.02 240)",
           }}
         >
-          REGULAR STRENGTH · SUPER STRENGTH HEADROOM — SHARED BY ALL 5
+          STAGE 1: -14dBFS 20:1 CATCH · STAGE 2: -1dBFS 100:1 BRICK WALL
         </div>
       </div>
 
@@ -139,8 +129,7 @@ function UnifiedCommanderBlock({
             lineHeight: 1.6,
           }}
         >
-          GAIN STAGE · STABILIZER · CLIP MONITOR · COMMANDER · DISTORTION
-          PROTECTION
+          STABILIZER · CLIP MONITOR · COMMANDER · DISTORTION PROTECTION
         </div>
         <div
           className="font-mono text-[6px] tracking-widest text-center mt-1"
@@ -151,7 +140,7 @@ function UnifiedCommanderBlock({
               : "none",
           }}
         >
-          ALL 5 AT FULL POWER — CLAMPING AS ONE FORCE
+          2-STAGE CHAIN — ZERO CLIPPING · ZERO DISTORTION · GAIN PUSHED FAR
         </div>
       </div>
 
@@ -1366,7 +1355,7 @@ const CHIPS = [
     id: 1,
     name: "COMMANDER BLOCK",
     description:
-      "FULL POWER — 803,200,000,000W + 12,800,000,000,000W super strength · STAB 100:1 · CLIP MONITOR LIVE",
+      "13,603,200,000,000W · 2-STAGE CHAIN: COMPRESSOR -14dBFS + BRICK-WALL -1dBFS · ZERO CLIP · ZERO DISTORTION",
   },
   {
     id: 2,
