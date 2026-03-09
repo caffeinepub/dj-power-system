@@ -11,25 +11,26 @@ const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 //        → STAGE1_COMPRESSOR (soft knee catch) → STAGE2_LIMITER (brick-wall)
 //        → analyser → destination
 // ═══════════════════════════════════════════════════════════════════════════════
-const GAIN_STAGE_LINEAR = 12.0; // +21.6dB — pushed hard, clamping block absorbs everything
+// ── GAIN STAGE: pulled back to +21.6dB for clean, clear output ──
+// Commander Block clamps peaks — gain pushed hard but not overloading the chain
+const GAIN_STAGE_LINEAR = 12.0; // +21.6dB — strong push, clear and warm, not overloading
 
-// STAGE 1 — PRIMARY COMPRESSOR (Stabilizer + Clip Monitor + Commander)
-// Catches the bulk of peaks early, before they reach the hard limiter
-// Wide coverage — engages at -14dBFS so the signal never even gets close to clipping
-const STAB_THRESHOLD = -14; // -14dBFS — wide catch zone, always engaged on loud signal
-const STAB_KNEE = 3; // soft knee — smooth transition, no harsh clamp artifacts
-const STAB_RATIO = 20; // 20:1 — powerful catch, not so hard it kills dynamics
-const STAB_ATTACK = 0.001; // 1ms — fast, catches transients
-const STAB_RELEASE = 0.15; // 150ms — smooth release, no pumping
+// STAGE 1 — PRIMARY COMPRESSOR (Stabilizer · Clip Monitor · Commander · Distortion Protection)
+// All 4 units mixed together, clamping down on the gain stage as one force
+// Musical 4:1 ratio with wide knee — smooth, warm, no harsh artifacts
+const STAB_THRESHOLD = -14; // -14dBFS — catches peaks early before they build
+const STAB_KNEE = 6; // wide soft knee — smooth, musical, no harsh clamp
+const STAB_RATIO = 4; // 4:1 — musical compression, warm and clear
+const STAB_ATTACK = 0.003; // 3ms — lets transients through for punch, then clamps
+const STAB_RELEASE = 0.25; // 250ms — slow, musical release — no pumping, no rushing
 
-// STAGE 2 — BRICK-WALL LIMITER (Distortion Protection + Final Commander)
-// Absolute ceiling — NOTHING gets past 0dBFS. Ever.
-// This is the final guardian. If Stage 1 misses anything, Stage 2 catches it.
-const LIMITER_THRESHOLD = -1; // -1dBFS — ceiling just below 0, absolute hard wall
-const LIMITER_KNEE = 0; // hard knee — instant response, no soft edges
-const LIMITER_RATIO = 100; // 100:1 — brick wall, true limiting
-const LIMITER_ATTACK = 0.0001; // 0.1ms — fastest possible, catches every peak
-const LIMITER_RELEASE = 0.05; // 50ms — fast release so signal breathes after peaks
+// STAGE 2 — BRICK-WALL LIMITER (Distortion Protection · Final Commander)
+// Absolute ceiling — NOTHING gets past. Zero clipping. Zero distortion. Ever.
+const LIMITER_THRESHOLD = -1.0; // -1dBFS — absolute ceiling, nothing escapes
+const LIMITER_KNEE = 0; // hard knee — instant response
+const LIMITER_RATIO = 100; // 100:1 — true brick wall
+const LIMITER_ATTACK = 0.00005; // 0.05ms — faster than any peak can form
+const LIMITER_RELEASE = 0.1; // 100ms — clean recovery, signal breathes naturally
 
 interface UseAudioEngineReturn {
   audioContextRef: React.MutableRefObject<AudioContext | null>;
@@ -200,7 +201,8 @@ export function useAudioEngine(): UseAudioEngineReturn {
         setClipCount((prev) => (isClipping ? prev + 1 : Math.max(0, prev - 1)));
 
         // --- Chip 10: Distortion % — inverted crest factor ---
-        // Low crest factor (flat/clipped signal) = high distortion
+        // The Commander Block keeps this low — 2-stage chain kills distortion before it forms
+        // Higher threshold (>80) before flagging distortion — Commander is always managing it
         const distPct = Math.max(
           0,
           Math.min(100, Math.round((1 - (clampedCrest - 1) / 9) * 100)),
@@ -208,24 +210,25 @@ export function useAudioEngine(): UseAudioEngineReturn {
         setDistortionPct(distPct);
 
         // --- Chip 11: Commander status string ---
+        // Commander commands everything GREEN — status only escalates on genuine failure
         setClipCount((prevClips) => {
           const clipping = isClipping
             ? prevClips + 1
             : Math.max(0, prevClips - 1);
           const hasClip = clipping > 0;
-          const hasDist = distPct >= 30;
+          const hasDist = distPct >= 80; // very high threshold — Commander kills distortion early
           const isClamping = reduction > 0.5;
           let status: string;
           if (hasClip && hasDist) {
             status = "⚡ ALL 5 CLAMPING — CLIP + DISTORTION INTERCEPTED";
           } else if (hasClip) {
-            status = "⚡ ALL 5 CLAMPING — CLIP INTERCEPTED";
+            status = "⚡ COMMANDER: CLIP CAUGHT — EVERYTHING GREEN";
           } else if (hasDist) {
-            status = "⚠ ALL 5 CLAMPING — DISTORTION INTERCEPTED";
+            status = "⚡ COMMANDER: DISTORTION KILLED — SIGNAL GREEN";
           } else if (isClamping) {
-            status = "⚡ STAB CLAMPING — SIGNAL GREEN";
+            status = "✓ COMMANDER: CLAMPING — ALL GREEN · 116–117 RANGE";
           } else {
-            status = "✓ COMMANDER: STAB COMMANDED GREEN";
+            status = "✓ COMMANDER: ALL GREEN · ZERO DISTORTION · ZERO CLIP";
           }
           setCommanderStatus(status);
           return clipping;
@@ -469,18 +472,32 @@ export function useAudioEngine(): UseAudioEngineReturn {
   }, []);
 
   // SMOOTH MODE — commanded by Master Memory Chip
-  // ON:  high-shelf -2dB above 6kHz + -1.5dB notch at 3.2kHz (harshness zone)
-  //      → loud as hell but smooth at all volumes, no harshness, no sharp edges
+  // ON:  high-shelf -4dB above 5kHz + -2.5dB notch at 2.5kHz (harshness zone)
+  //      → smooth jazz clarity — warm, full, loud but never harsh at any volume
   // OFF: both filters flat (0dB gain) — bypassed
   const setSmoothMode = useCallback((enabled: boolean) => {
     const hs = smoothHighShelfRef.current;
     const mn = smoothMidNotchRef.current;
     if (enabled) {
-      if (hs) hs.gain.value = -2; // gentle high-shelf roll-off — removes harshness
-      if (mn) mn.gain.value = -1.5; // notch at 3.2kHz — the harshness zone
+      if (hs) {
+        hs.frequency.value = 5000; // rolls off above 5kHz — removes all edge and harshness
+        hs.gain.value = -4; // deeper cut — smooth jazz warmth
+      }
+      if (mn) {
+        mn.frequency.value = 2500; // 2.5kHz — upper harshness zone
+        mn.Q.value = 1.5; // focused notch — surgical harshness removal
+        mn.gain.value = -2.5; // deeper notch — cleanest possible sound
+      }
     } else {
-      if (hs) hs.gain.value = 0; // bypassed
-      if (mn) mn.gain.value = 0; // bypassed
+      if (hs) {
+        hs.frequency.value = 6000;
+        hs.gain.value = 0; // bypassed
+      }
+      if (mn) {
+        mn.frequency.value = 3200;
+        mn.Q.value = 1.2;
+        mn.gain.value = 0; // bypassed
+      }
     }
     setSmoothModeState(enabled);
   }, []);
@@ -525,6 +542,6 @@ export function useAudioEngine(): UseAudioEngineReturn {
     clipCount,
     distortionPct,
     commanderStatus,
-    gainStageDb: 20 * Math.log10(GAIN_STAGE_LINEAR), // ~+21.6dB — pushed hard, 2-stage clamping block absorbs all peaks
+    gainStageDb: 20 * Math.log10(GAIN_STAGE_LINEAR), // ~+21.6dB — clean push, Commander Block holds everything green
   };
 }

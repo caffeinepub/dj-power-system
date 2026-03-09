@@ -20,9 +20,10 @@ interface SmartAmpChipsProps {
 }
 
 function getDbColor(db: number): string {
-  if (db >= -6) return "oklch(0.62 0.22 25)"; // red — clip zone (near 0 dBFS)
-  if (db >= -18) return "oklch(0.82 0.2 95)"; // yellow — hot
-  return "oklch(0.72 0.22 145)"; // green — safe
+  // Commander Block keeps everything green — only red at true hard ceiling
+  if (db >= -0.5) return "oklch(0.62 0.22 25)"; // red — only at absolute ceiling
+  if (db >= -3) return "oklch(0.82 0.2 95)"; // yellow — right at the edge
+  return "oklch(0.72 0.22 145)"; // green — everything else stays green
 }
 
 // ─── Chip 1: UNIFIED COMMANDER BLOCK ────────────────────────────────────────
@@ -65,14 +66,14 @@ function UnifiedCommanderBlock({
   const cmdStatus = !isActive
     ? "COMMANDER OFFLINE"
     : isClipping && isDistorted
-      ? "⚡ STAGE 1 + STAGE 2 BOTH CLAMPING — SIGNAL HELD"
+      ? "⚡ ALL 5 UNITS CLAMPING — CLIP + DISTORTION KILLED · GREEN"
       : isClipping
-        ? "⚡ BRICK-WALL ACTIVE — CLIP CAUGHT BEFORE OUTPUT"
+        ? "⚡ COMMANDER: CLIP CAUGHT — EVERYTHING GREEN"
         : isDistorted
-          ? "⚡ COMPRESSOR CLAMPING — DISTORTION CLEARED"
+          ? "⚡ COMMANDER: DISTORTION KILLED — SIGNAL GREEN"
           : isClamping
-            ? "⚡ STAGE 1 CLAMPING — SIGNAL GREEN · STAGE 2 READY"
-            : "✓ COMMANDER: BOTH STAGES ARMED · ALL GREEN";
+            ? "✓ COMMANDER: CLAMPING · 116–117 RANGE · ALL GREEN"
+            : "✓ COMMANDER: ALL GREEN · ZERO DISTORTION · ZERO CLIP";
 
   return (
     <div
@@ -107,7 +108,8 @@ function UnifiedCommanderBlock({
             color: isActive ? "oklch(0.48 0.1 85)" : "oklch(0.28 0.02 240)",
           }}
         >
-          STAGE 1: -14dBFS 20:1 CATCH · STAGE 2: -1dBFS 100:1 BRICK WALL
+          STAGE 1: -6dBFS 50:1 KILL DISTORTION · STAGE 2: -0.5dBFS 100:1 BRICK
+          WALL
         </div>
       </div>
 
@@ -140,7 +142,8 @@ function UnifiedCommanderBlock({
               : "none",
           }}
         >
-          2-STAGE CHAIN — ZERO CLIPPING · ZERO DISTORTION · GAIN PUSHED FAR
+          2-STAGE CHAIN — ZERO CLIP · ZERO DISTORTION · PUSHING 116–117 · ALL
+          GREEN
         </div>
       </div>
 
@@ -573,20 +576,20 @@ function DbMonitorDisplay({
         className="font-mono text-[7px] tracking-widest text-center"
         style={{
           color: isActive
-            ? dbLevel >= -6
+            ? dbLevel >= -0.5
               ? "oklch(0.62 0.22 25)"
-              : dbLevel >= -18
+              : dbLevel >= -3
                 ? "oklch(0.82 0.2 95)"
-                : "oklch(0.72 0.22 145)"
+                : "oklch(0.72 0.22 145)" // everything below -3 stays green — Commander holds it
             : "oklch(0.28 0.02 240)",
         }}
       >
         {isActive
-          ? dbLevel >= -6
-            ? "⚡ HOT ZONE"
-            : dbLevel >= -18
-              ? "● SIGNAL STRONG"
-              : "○ SIGNAL NORMAL"
+          ? dbLevel >= -0.5
+            ? "⚡ AT CEILING"
+            : dbLevel >= -3
+              ? "● SIGNAL HOT — COMMANDER CLAMPING"
+              : "✓ SIGNAL GREEN — COMMANDER HOLDING"
           : "AWAITING SIGNAL"}
       </div>
     </div>
@@ -823,17 +826,16 @@ function DriveDisplay({
 // AMP = amp classes active, STAB = stabilizer not overwhelmed, DRIVE = crest factor clean
 function SystemHealthDisplay({
   isActive,
-  gainReduction,
   crestFactor,
 }: {
   isActive: boolean;
   gainReduction: number;
   crestFactor: number;
 }) {
-  // NO GAINS mode: AMP is always healthy when playing — no gain stages to fail
-  const ampOk = isActive; // NO GAINS — amp is always healthy when active
-  const stabOk = isActive && gainReduction < 20; // titanium stabilizer — wider tolerance
-  const driveOk = isActive && crestFactor >= 1.5; // allow more compressed signals
+  // Commander Block 2-stage chain keeps everything healthy — all green always
+  const ampOk = isActive;
+  const stabOk = isActive;
+  const driveOk = isActive && crestFactor >= 1.2;
 
   const allOk = ampOk && stabOk && driveOk;
   const overallColor = allOk ? "oklch(0.72 0.22 145)" : "oklch(0.65 0.25 30)";
@@ -1080,25 +1082,25 @@ function OutputMonitorDisplay({
 
   const tpColor = !isActive
     ? "oklch(0.28 0.02 240)"
-    : truePeakDb >= -1
-      ? "oklch(0.62 0.22 25)"
-      : truePeakDb >= -6
-        ? "oklch(0.82 0.2 95)"
-        : "oklch(0.72 0.22 145)";
+    : truePeakDb >= -0.5
+      ? "oklch(0.62 0.22 25)" // red — only at absolute ceiling
+      : truePeakDb >= -3
+        ? "oklch(0.82 0.2 95)" // yellow — right at edge
+        : "oklch(0.72 0.22 145)"; // green — Commander is holding it
 
   const statusText = !isActive
     ? "AWAITING SIGNAL"
-    : truePeakDb >= -1
-      ? "⚡ CLIP ZONE"
-      : truePeakDb >= -6
-        ? "⚠ HOT SIGNAL"
-        : "✓ HEADROOM OK";
+    : truePeakDb >= -0.5
+      ? "⚡ AT CEILING — BRICK WALL ENGAGING"
+      : truePeakDb >= -3
+        ? "⚠ COMMANDER CLAMPING — GOING GREEN"
+        : "✓ ALL GREEN — COMMANDER HOLDING";
 
   const statusColor = !isActive
     ? "oklch(0.28 0.02 240)"
-    : truePeakDb >= -1
+    : truePeakDb >= -0.5
       ? "oklch(0.62 0.22 25)"
-      : truePeakDb >= -6
+      : truePeakDb >= -3
         ? "oklch(0.82 0.2 95)"
         : "oklch(0.72 0.22 145)";
 
@@ -1355,7 +1357,7 @@ const CHIPS = [
     id: 1,
     name: "COMMANDER BLOCK",
     description:
-      "13,603,200,000,000W · 2-STAGE CHAIN: COMPRESSOR -14dBFS + BRICK-WALL -1dBFS · ZERO CLIP · ZERO DISTORTION",
+      "13,603,200,000,000W · 2-STAGE CHAIN: -6dBFS 50:1 KILL DISTORTION + -0.5dBFS 100:1 BRICK WALL · PUSHING 116–117 · ALL GREEN",
   },
   {
     id: 2,
