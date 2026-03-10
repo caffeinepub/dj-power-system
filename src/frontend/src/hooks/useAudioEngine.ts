@@ -11,26 +11,31 @@ const EQ_FREQUENCIES = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 //        → STAGE1_COMPRESSOR (soft knee catch) → STAGE2_LIMITER (brick-wall)
 //        → analyser → destination
 // ═══════════════════════════════════════════════════════════════════════════════
-// ── GAIN STAGE: pulled back to +21.6dB for clean, clear output ──
-// Commander Block clamps peaks — gain pushed hard but not overloading the chain
-const GAIN_STAGE_LINEAR = 12.0; // +21.6dB — strong push, clear and warm, not overloading
+// ── GAIN STAGE: warm, clear push — Commander Block + Loudness Maximizer handles the rest ──
+// Set at +21.6dB — strong input drive feeding the 3-stage loudness chain
+const GAIN_STAGE_LINEAR = 12.0; // +21.6dB — strong drive into the loudness maximizer chain
 
-// STAGE 1 — PRIMARY COMPRESSOR (Stabilizer · Clip Monitor · Commander · Distortion Protection)
-// All 4 units mixed together, clamping down on the gain stage as one force
-// Musical 4:1 ratio with wide knee — smooth, warm, no harsh artifacts
-const STAB_THRESHOLD = -14; // -14dBFS — catches peaks early before they build
-const STAB_KNEE = 6; // wide soft knee — smooth, musical, no harsh clamp
-const STAB_RATIO = 4; // 4:1 — musical compression, warm and clear
-const STAB_ATTACK = 0.003; // 3ms — lets transients through for punch, then clamps
-const STAB_RELEASE = 0.25; // 250ms — slow, musical release — no pumping, no rushing
+// STAGE 1 — SOFT COMPRESSOR (Stabilizer · Clip Monitor · Commander)
+// Creates controlled headroom — catches peaks, lets transients through for punch
+// 4:1 ratio, -14dBFS threshold — more headroom for the makeup gain to fill up
+const STAB_THRESHOLD = -14; // -14dBFS — catches peaks, leaves room for makeup gain
+const STAB_KNEE = 10; // very wide soft knee — completely invisible entry
+const STAB_RATIO = 4; // 4:1 — stronger catch, more headroom created
+const STAB_ATTACK = 0.008; // 8ms — lets transients punch through first, then holds
+const STAB_RELEASE = 0.3; // 300ms — smooth, musical release — no pumping
 
-// STAGE 2 — BRICK-WALL LIMITER (Distortion Protection · Final Commander)
+// STAGE 2 — LOUDNESS MAKEUP GAIN (fills the headroom created by Stage 1)
+// This is the loudness maximizer trick: compressor creates headroom → makeup fills it back
+// Average loudness rides HIGH — signal stays near the ceiling without ever touching it
+const MAKEUP_GAIN_LINEAR = 2.0; // +6dB makeup gain — fills Stage 1 headroom, avg loudness jumps
+
+// STAGE 3 — BRICK-WALL LIMITER (Distortion Protection · Final Commander)
 // Absolute ceiling — NOTHING gets past. Zero clipping. Zero distortion. Ever.
 const LIMITER_THRESHOLD = -1.0; // -1dBFS — absolute ceiling, nothing escapes
 const LIMITER_KNEE = 0; // hard knee — instant response
 const LIMITER_RATIO = 100; // 100:1 — true brick wall
 const LIMITER_ATTACK = 0.00005; // 0.05ms — faster than any peak can form
-const LIMITER_RELEASE = 0.1; // 100ms — clean recovery, signal breathes naturally
+const LIMITER_RELEASE = 0.12; // 120ms — clean recovery, signal breathes naturally
 
 interface UseAudioEngineReturn {
   audioContextRef: React.MutableRefObject<AudioContext | null>;
@@ -70,7 +75,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const filtersRef = useRef<BiquadFilterNode[]>([]);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
-  // Stage 2 — brick-wall limiter: the final guardian before destination
+  // Stage 2 — loudness makeup gain: fills headroom created by Stage 1 compressor
+  const loudnessMakeupRef = useRef<GainNode | null>(null);
+  // Stage 3 — brick-wall limiter: the final guardian before destination
   const brickWallLimiterRef = useRef<DynamicsCompressorNode | null>(null);
   // Second stabilizer — dedicated to dB meter signal path (parallel, not in playback chain)
   const dbStabCompressorRef = useRef<DynamicsCompressorNode | null>(null);
@@ -281,11 +288,12 @@ export function useAudioEngine(): UseAudioEngineReturn {
         });
         filtersRef.current = filters;
 
-        // 80Hz bass control filter — lowshelf, user-adjustable via slider (correction only, no auto gains)
+        // 80Hz bass control filter — lowshelf, deep and focused, not bleeding into mids
+        // Q 0.5 = tighter shelf — bass is deep and full, not wide and overbearing
         const bassFilter = ctx.createBiquadFilter();
         bassFilter.type = "lowshelf";
         bassFilter.frequency.value = 80;
-        bassFilter.Q.value = 0.7; // default Q — normal mode
+        bassFilter.Q.value = 0.5; // tighter shelf — deep 80Hz punch, clean cutoff above
         bassFilter.gain.value = 0; // default flat — user controls this manually
         bassFilterRef.current = bassFilter;
 
@@ -336,9 +344,17 @@ export function useAudioEngine(): UseAudioEngineReturn {
         compressor.release.value = STAB_RELEASE;
         compressorRef.current = compressor;
 
-        // ── STAGE 2: BRICK-WALL LIMITER (Distortion Protection · Final Commander) ──
+        // ── STAGE 2: LOUDNESS MAKEUP GAIN ──
+        // After Stage 1 compresses peaks and creates headroom, this gain node fills it back up.
+        // This is the professional loudness maximizer trick: compress → makeup → limit.
+        // Average loudness rides much higher — signal stays near the ceiling without touching it.
+        const loudnessMakeup = ctx.createGain();
+        loudnessMakeup.gain.value = MAKEUP_GAIN_LINEAR; // +6dB — fills Stage 1 headroom
+        loudnessMakeupRef.current = loudnessMakeup;
+
+        // ── STAGE 3: BRICK-WALL LIMITER (Distortion Protection · Final Commander) ──
         // Absolute hard ceiling at -1dBFS — NOTHING gets past. Zero clipping. Zero distortion.
-        // If Stage 1 misses a peak, Stage 2 catches it. The signal NEVER hits 0dBFS.
+        // If Stage 1 misses a peak, Stage 3 catches it. The signal NEVER hits 0dBFS.
         const brickWallLimiter = ctx.createDynamicsCompressor();
         brickWallLimiter.threshold.value = LIMITER_THRESHOLD;
         brickWallLimiter.knee.value = LIMITER_KNEE;
@@ -367,11 +383,12 @@ export function useAudioEngine(): UseAudioEngineReturn {
         analyser.smoothingTimeConstant = 0.5; // slightly faster response for accurate readings
         analyserRef.current = analyser;
 
-        // ── FULL 2-STAGE CHAIN ──
-        // source → gainStage → bassFilter(80Hz) → highpassShelf → EQ[0..9]
+        // ── FULL 3-STAGE LOUDNESS MAXIMIZER CHAIN ──
+        // source → gainStage (+21.6dB) → bassFilter(80Hz) → highpassShelf → EQ[0..9]
         //        → smoothHighShelf → smoothMidNotch
-        //        → STAGE1 compressor (-14dBFS, 20:1, soft knee)
-        //        → STAGE2 brick-wall (-1dBFS, 100:1, hard knee)
+        //        → STAGE1 soft compressor (-14dBFS, 4:1, wide soft knee — creates headroom)
+        //        → STAGE2 loudness makeup gain (+6dB — fills headroom, avg loudness rides high)
+        //        → STAGE3 brick-wall limiter (-1dBFS, 100:1 — nothing gets past, zero clip)
         //        → analyser → destination
         // Parallel: smoothMidNotch → dbStabSplitter → dbStabCompressor (monitoring)
         gainStage.connect(bassFilter);
@@ -383,9 +400,10 @@ export function useAudioEngine(): UseAudioEngineReturn {
         // Smooth mode filters between last EQ and Stage 1 compressor
         filters[filters.length - 1].connect(smoothHighShelf);
         smoothHighShelf.connect(smoothMidNotch);
-        // Stage 1 → Stage 2 → analyser → speakers
+        // Stage 1 → Stage 2 (makeup) → Stage 3 (brick wall) → analyser → speakers
         smoothMidNotch.connect(compressor);
-        compressor.connect(brickWallLimiter);
+        compressor.connect(loudnessMakeup);
+        loudnessMakeup.connect(brickWallLimiter);
         brickWallLimiter.connect(analyser);
         analyser.connect(ctx.destination);
 
@@ -448,8 +466,8 @@ export function useAudioEngine(): UseAudioEngineReturn {
 
     if (enabled) {
       if (bf) {
-        bf.Q.value = 0.5; // wider Q — bass sounds deeper, not peaky
-        // Apply -2dB trim so bass sits under the mix (not on top)
+        bf.Q.value = 0.4; // tighter authority Q — deep and focused, not overbearing
+        // Apply -2dB trim so bass sits under the mix, not on top
         const trimmedGain = Math.max(-12, bassGainValueRef.current - 2);
         bf.gain.value = trimmedGain;
       }
@@ -472,21 +490,22 @@ export function useAudioEngine(): UseAudioEngineReturn {
   }, []);
 
   // SMOOTH MODE — commanded by Master Memory Chip
-  // ON:  high-shelf -4dB above 5kHz + -2.5dB notch at 2.5kHz (harshness zone)
-  //      → smooth jazz clarity — warm, full, loud but never harsh at any volume
+  // ON:  high-shelf -4.5dB above 4kHz + -3.5dB notch at 2.5kHz (deep harshness zone)
+  //      → deep smooth jazz clarity — warm, full, loud but never harsh at any volume
+  //      Even deeper cut than before for true Gold Phantom-style warmth
   // OFF: both filters flat (0dB gain) — bypassed
   const setSmoothMode = useCallback((enabled: boolean) => {
     const hs = smoothHighShelfRef.current;
     const mn = smoothMidNotchRef.current;
     if (enabled) {
       if (hs) {
-        hs.frequency.value = 5000; // rolls off above 5kHz — removes all edge and harshness
-        hs.gain.value = -4; // deeper cut — smooth jazz warmth
+        hs.frequency.value = 4000; // rolls off above 4kHz — deeper warmth, removes all edge
+        hs.gain.value = -4.5; // deeper cut — true smooth jazz warmth
       }
       if (mn) {
         mn.frequency.value = 2500; // 2.5kHz — upper harshness zone
         mn.Q.value = 1.5; // focused notch — surgical harshness removal
-        mn.gain.value = -2.5; // deeper notch — cleanest possible sound
+        mn.gain.value = -3.5; // deepest notch — cleanest possible sound
       }
     } else {
       if (hs) {
@@ -542,6 +561,6 @@ export function useAudioEngine(): UseAudioEngineReturn {
     clipCount,
     distortionPct,
     commanderStatus,
-    gainStageDb: 20 * Math.log10(GAIN_STAGE_LINEAR), // ~+21.6dB — clean push, Commander Block holds everything green
+    gainStageDb: 20 * Math.log10(GAIN_STAGE_LINEAR), // ~+21.6dB — strong drive into 3-stage loudness maximizer chain
   };
 }

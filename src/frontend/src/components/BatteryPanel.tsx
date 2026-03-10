@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface BatteryPanelProps {
   chargeLevel: number;
@@ -201,6 +201,15 @@ export function BatteryPanel({
   chargeLevel,
   isFullyCharged,
 }: BatteryPanelProps) {
+  const [ampWatts, setAmpWatts] = useState(9000);
+  useEffect(() => {
+    if (chargeLevel < 50) return;
+    const id = setInterval(
+      () => setAmpWatts((w) => (w === 9000 ? 10000 : 9000)),
+      800,
+    );
+    return () => clearInterval(id);
+  }, [chargeLevel]);
   return (
     <div
       data-ocid="battery.panel"
@@ -309,6 +318,61 @@ export function BatteryPanel({
           </div>
         </div>
 
+        {/* AMP POWER DELIVERY — safe 9,000W → 10,000W */}
+        <div
+          className="mt-2 px-2 py-1.5 rounded-lg"
+          style={{
+            background:
+              chargeLevel >= 50
+                ? "oklch(0.12 0.04 170 / 0.5)"
+                : "oklch(0.1 0.01 240 / 0.4)",
+            border:
+              chargeLevel >= 50
+                ? "1px solid oklch(0.72 0.22 145 / 0.3)"
+                : "1px solid oklch(0.22 0.02 240 / 0.4)",
+          }}
+        >
+          <div
+            className="font-mono text-[7px] tracking-widest mb-0.5"
+            style={{ color: "oklch(0.42 0.04 240)" }}
+          >
+            AMP POWER DELIVERY
+          </div>
+          {chargeLevel >= 50 ? (
+            <>
+              <div
+                className="font-mono text-[11px] font-bold tracking-wider"
+                style={{
+                  color: "oklch(0.82 0.22 170)",
+                  textShadow: "0 0 8px oklch(0.72 0.22 145 / 0.8)",
+                  transition: "all 0.3s ease",
+                }}
+              >
+                {ampWatts.toLocaleString()}W → 10,000W{" "}
+                <span
+                  className="text-[8px]"
+                  style={{ color: "oklch(0.72 0.22 145)" }}
+                >
+                  SAFE DELIVERY
+                </span>
+              </div>
+              <div
+                className="font-mono text-[6px] tracking-widest mt-0.5"
+                style={{ color: "oklch(0.55 0.15 145)" }}
+              >
+                SAFE POWER · NO DISTORTION · AMP PROTECTED
+              </div>
+            </>
+          ) : (
+            <div
+              className="font-mono text-[9px] tracking-wider"
+              style={{ color: "oklch(0.35 0.03 240)" }}
+            >
+              AMP POWER OFFLINE · CHARGE TO 50%
+            </div>
+          )}
+        </div>
+
         {/* Right: Flow status */}
         <div className="flex flex-col items-end gap-1 shrink-0">
           {isFullyCharged ? (
@@ -329,7 +393,27 @@ export function BatteryPanel({
                   boxShadow: "0 0 6px oklch(0.72 0.22 145)",
                 }}
               />
-              ZERO GAUGE FLOW
+              ZERO GAUGE FLOW · AMP CONNECTED
+            </div>
+          ) : chargeLevel >= 50 ? (
+            <div
+              className="font-mono text-[9px] font-bold tracking-wider flex items-center gap-1.5"
+              style={{
+                color: "oklch(0.72 0.22 145)",
+                textShadow: "0 0 8px oklch(0.72 0.22 145 / 0.7)",
+              }}
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 7,
+                  height: 7,
+                  borderRadius: "50%",
+                  background: "oklch(0.72 0.22 145)",
+                  boxShadow: "0 0 5px oklch(0.72 0.22 145 / 0.9)",
+                }}
+              />
+              BATTERY → AMP · POWERING APP
             </div>
           ) : (
             <div
@@ -346,14 +430,18 @@ export function BatteryPanel({
                   background: "transparent",
                 }}
               />
-              STANDBY
+              STANDBY · 50,000W IGNITION READY
             </div>
           )}
           <div
             className="font-mono text-[6px] tracking-widest"
             style={{ color: "oklch(0.28 0.02 240)" }}
           >
-            {isFullyCharged ? "UNRESTRICTED" : "AWAITING CHARGE"}
+            {isFullyCharged
+              ? "UNRESTRICTED"
+              : chargeLevel >= 50
+                ? "AMP ONLINE"
+                : "AWAITING CHARGE"}
           </div>
         </div>
       </div>

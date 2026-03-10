@@ -751,6 +751,7 @@ export default function App() {
                   distortionPct={distortionPct}
                   commanderStatus={commanderStatus}
                   gainStageDb={gainStageDb}
+                  chargeLevel={chargeLevel}
                 />
                 <FilePicker
                   audioFile={audioFile}

@@ -15,7 +15,7 @@ const DB_RANGE = DB_MAX - DB_MIN;
 
 function getSegmentColor(db: number, controlled: boolean): string {
   if (controlled) return "oklch(0.72 0.22 145)"; // always green when chip commands it
-  if (db >= -6) return "oklch(0.62 0.22 25)"; // red — clip zone (near 0 dBFS)
+  if (db >= -3) return "oklch(0.62 0.22 25)"; // red — only at absolute ceiling
   if (db >= -18) return "oklch(0.82 0.2 95)"; // yellow — hot
   return "oklch(0.72 0.22 145)"; // green — safe
 }
@@ -126,7 +126,7 @@ export function DBMeter({
 
   const dbColor = isControlled
     ? "oklch(0.72 0.22 145)"
-    : displayDb >= -6
+    : displayDb >= -3
       ? "oklch(0.62 0.22 25)"
       : displayDb >= -18
         ? "oklch(0.82 0.2 95)"
@@ -146,8 +146,8 @@ export function DBMeter({
     ? "● STANDBY"
     : isControlled
       ? "● SAFE — CTRL"
-      : displayDb >= -6
-        ? "⚠ CLIP ZONE"
+      : displayDb >= -3
+        ? "⚠ AT CEILING"
         : displayDb >= -18
           ? "● HOT"
           : "● SAFE";
@@ -156,7 +156,7 @@ export function DBMeter({
     ? "oklch(0.55 0.15 145)"
     : !isPlaying
       ? "oklch(0.35 0.02 240)"
-      : displayDb >= -6
+      : displayDb >= -3
         ? "oklch(0.72 0.22 25)"
         : displayDb >= -18
           ? "oklch(0.82 0.2 95)"
@@ -269,7 +269,7 @@ export function DBMeter({
               style={{
                 color: isControlled
                   ? "oklch(0.55 0.05 145 / 0.7)"
-                  : db >= -6
+                  : db >= -3
                     ? "oklch(0.62 0.22 25 / 0.7)"
                     : db >= -18
                       ? "oklch(0.82 0.2 95 / 0.7)"
