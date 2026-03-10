@@ -201,15 +201,6 @@ export function BatteryPanel({
   chargeLevel,
   isFullyCharged,
 }: BatteryPanelProps) {
-  const [ampWatts, setAmpWatts] = useState(9000);
-  useEffect(() => {
-    if (chargeLevel < 50) return;
-    const id = setInterval(
-      () => setAmpWatts((w) => (w === 9000 ? 10000 : 9000)),
-      800,
-    );
-    return () => clearInterval(id);
-  }, [chargeLevel]);
   return (
     <div
       data-ocid="battery.panel"
@@ -348,7 +339,7 @@ export function BatteryPanel({
                   transition: "all 0.3s ease",
                 }}
               >
-                {ampWatts.toLocaleString()}W → 10,000W{" "}
+                9,500W{" "}
                 <span
                   className="text-[8px]"
                   style={{ color: "oklch(0.72 0.22 145)" }}

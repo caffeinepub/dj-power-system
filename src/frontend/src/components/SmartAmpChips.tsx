@@ -48,15 +48,6 @@ function UnifiedCommanderBlock({
   distortionPct: number;
   chargeLevel?: number;
 }) {
-  const [ampWatts, setAmpWatts] = useState(9000);
-  useEffect(() => {
-    if ((chargeLevel ?? 0) < 50) return;
-    const id = setInterval(
-      () => setAmpWatts((w) => (w === 9000 ? 10000 : 9000)),
-      800,
-    );
-    return () => clearInterval(id);
-  }, [chargeLevel]);
   const isClamping = gainReduction > 0.5;
   const isClipping = isActive && clipCount > 0;
   const isDistorted = isActive && distortionPct > 75;
@@ -209,7 +200,7 @@ function UnifiedCommanderBlock({
             }}
           >
             {isActive && (chargeLevel ?? 0) >= 50
-              ? `BATT → AMP: ${ampWatts.toLocaleString()}W–10,000W · SAFE`
+              ? "BATT → AMP: 9,500W · SAFE"
               : "BATTERY POWER → AMP"}
           </div>
           <div
